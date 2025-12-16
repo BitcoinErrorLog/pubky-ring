@@ -16,6 +16,9 @@ import {
 	isSignupAction,
 	isInviteAction,
 	isSessionAction,
+	isDeriveKeypairAction,
+	isGetProfileAction,
+	isGetFollowsAction,
 	isUnknownAction,
 } from './inputParser';
 import { handleAuthAction } from './actions/authAction';
@@ -23,6 +26,9 @@ import { handleImportAction } from './actions/importAction';
 import { handleSignupAction } from './actions/signupAction';
 import { handleInviteAction } from './actions/inviteAction';
 import { handleSessionAction } from './actions/sessionAction';
+import { handleKeypairAction } from './actions/keypairAction';
+import { handleProfileAction } from './actions/profileAction';
+import { handleFollowsAction } from './actions/followsAction';
 import i18n from '../i18n';
 import { getErrorMessage } from './errorHandler';
 
@@ -101,6 +107,27 @@ export const routeInput = async (
 				: err(getErrorMessage(result.error, i18n.t('errors.sessionRequestFailed')));
 		}
 
+		if (isDeriveKeypairAction(data)) {
+			const result = await handleKeypairAction(data, effectiveContext);
+			return result.isOk()
+				? ok({ success: true, action: InputAction.DeriveKeypair, pubky: result.value, message: 'Keypair derived successfully' })
+				: err(getErrorMessage(result.error, 'Failed to derive keypair'));
+		}
+
+		if (isGetProfileAction(data)) {
+			const result = await handleProfileAction(data, effectiveContext);
+			return result.isOk()
+				? ok({ success: true, action: InputAction.GetProfile, pubky: result.value, message: 'Profile retrieved successfully' })
+				: err(getErrorMessage(result.error, 'Failed to get profile'));
+		}
+
+		if (isGetFollowsAction(data)) {
+			const result = await handleFollowsAction(data, effectiveContext);
+			return result.isOk()
+				? ok({ success: true, action: InputAction.GetFollows, pubky: result.value, message: 'Follows retrieved successfully' })
+				: err(getErrorMessage(result.error, 'Failed to get follows'));
+		}
+
 		if (isUnknownAction(data)) {
 			console.log('[InputRouter] Unknown input format:', data.params.rawData.substring(0, 100));
 			return err(i18n.t('errors.unrecognizedFormat'));
@@ -118,7 +145,12 @@ export const routeInput = async (
  * Determines if an action requires a pubky to be selected
  */
 export const actionRequiresPubky = (action: InputAction): boolean => {
-	return action === InputAction.Auth || action === InputAction.Session;
+	return [
+		InputAction.Auth,
+		InputAction.Session,
+		InputAction.DeriveKeypair,
+		InputAction.GetFollows,
+	].includes(action);
 };
 
 /**
@@ -130,5 +162,7 @@ export const actionRequiresNetwork = (action: InputAction): boolean => {
 		InputAction.Signup,
 		InputAction.Invite,
 		InputAction.Session,
+		InputAction.GetProfile,
+		InputAction.GetFollows,
 	].includes(action);
 };

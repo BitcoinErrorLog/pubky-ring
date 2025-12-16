@@ -25,6 +25,9 @@ export enum InputAction {
 	Invite = 'invite',
 	Session = 'session',
 	HomeserverSignIn = 'homeserver_signin',
+	DeriveKeypair = 'derive_keypair',
+	GetProfile = 'get_profile',
+	GetFollows = 'get_follows',
 	Unknown = 'unknown',
 }
 
@@ -60,6 +63,26 @@ export interface SessionParams {
 	callback: string;
 }
 
+// Keypair derivation parameters for Paykit/Bitkit noise keys
+export interface DeriveKeypairParams {
+	deviceId: string;
+	epoch: number;
+	callback: string;
+}
+
+// Profile request parameters
+export interface GetProfileParams {
+	pubkey: string;
+	callback: string;
+	app?: string; // App namespace, defaults to 'pubky.app'
+}
+
+// Follows request parameters
+export interface GetFollowsParams {
+	callback: string;
+	app?: string; // App namespace, defaults to 'pubky.app'
+}
+
 // Union type for all action data
 export type ActionData =
 	| { action: InputAction.Auth; params: AuthParams; rawUrl: string }
@@ -68,6 +91,9 @@ export type ActionData =
 	| { action: InputAction.Invite; params: InviteParams }
 	| { action: InputAction.Session; params: SessionParams }
 	| { action: InputAction.HomeserverSignIn; params: { url: string } }
+	| { action: InputAction.DeriveKeypair; params: DeriveKeypairParams }
+	| { action: InputAction.GetProfile; params: GetProfileParams }
+	| { action: InputAction.GetFollows; params: GetFollowsParams }
 	| { action: InputAction.Unknown; params: { rawData: string } };
 
 // The standardized parsed input type
@@ -185,6 +211,78 @@ const parseSessionParams = (queryString: string): SessionParams | null => {
 };
 
 /**
+ * Parses derive-keypair deeplink parameters
+ * Format: derive-keypair?deviceId={device_id}&epoch={epoch}&callback={callback_url}
+ * Example: pubkyring://derive-keypair?deviceId=abc123&epoch=0&callback=bitkit://paykit-keypair
+ */
+const parseDeriveKeypairParams = (queryString: string): DeriveKeypairParams | null => {
+	try {
+		const params = new URLSearchParams(queryString);
+		const deviceId = params.get('deviceId');
+		const epochStr = params.get('epoch');
+		const callback = params.get('callback');
+		if (!deviceId || !epochStr || !callback) {
+			return null;
+		}
+		const epoch = parseInt(epochStr, 10);
+		if (isNaN(epoch)) {
+			return null;
+		}
+		return {
+			deviceId,
+			epoch,
+			callback: decodeURIComponent(callback),
+		};
+	} catch {
+		return null;
+	}
+};
+
+/**
+ * Parses get-profile deeplink parameters
+ * Format: get-profile?pubkey={pubkey}&callback={callback_url}&app={app}
+ * Example: pubkyring://get-profile?pubkey=abc123&callback=bitkit://paykit-profile
+ */
+const parseGetProfileParams = (queryString: string): GetProfileParams | null => {
+	try {
+		const params = new URLSearchParams(queryString);
+		const pubkey = params.get('pubkey');
+		const callback = params.get('callback');
+		if (!pubkey || !callback) {
+			return null;
+		}
+		return {
+			pubkey,
+			callback: decodeURIComponent(callback),
+			app: params.get('app') || undefined,
+		};
+	} catch {
+		return null;
+	}
+};
+
+/**
+ * Parses get-follows deeplink parameters
+ * Format: get-follows?callback={callback_url}&app={app}
+ * Example: pubkyring://get-follows?callback=bitkit://paykit-follows
+ */
+const parseGetFollowsParams = (queryString: string): GetFollowsParams | null => {
+	try {
+		const params = new URLSearchParams(queryString);
+		const callback = params.get('callback');
+		if (!callback) {
+			return null;
+		}
+		return {
+			callback: decodeURIComponent(callback),
+			app: params.get('app') || undefined,
+		};
+	} catch {
+		return null;
+	}
+};
+
+/**
  * Main parsing function - the single entry point for all input parsing
  *
  * @param rawInput - The raw input string from any source
@@ -261,6 +359,51 @@ export const parseInput = async (
 			return {
 				action: InputAction.Session,
 				data: { action: InputAction.Session, params: sessionParams },
+				source,
+				rawInput,
+			};
+		}
+	}
+
+	// 2a. Check for derive-keypair deeplink (Paykit noise key derivation)
+	// Format: pubkyring://derive-keypair?deviceId={id}&epoch={epoch}&callback={url}
+	if (urlWithoutProtocol.startsWith('derive-keypair?')) {
+		const queryString = urlWithoutProtocol.substring(15); // Remove "derive-keypair?"
+		const keypairParams = parseDeriveKeypairParams(queryString);
+		if (keypairParams) {
+			return {
+				action: InputAction.DeriveKeypair,
+				data: { action: InputAction.DeriveKeypair, params: keypairParams },
+				source,
+				rawInput,
+			};
+		}
+	}
+
+	// 2b. Check for get-profile deeplink
+	// Format: pubkyring://get-profile?pubkey={pubkey}&callback={url}
+	if (urlWithoutProtocol.startsWith('get-profile?')) {
+		const queryString = urlWithoutProtocol.substring(12); // Remove "get-profile?"
+		const profileParams = parseGetProfileParams(queryString);
+		if (profileParams) {
+			return {
+				action: InputAction.GetProfile,
+				data: { action: InputAction.GetProfile, params: profileParams },
+				source,
+				rawInput,
+			};
+		}
+	}
+
+	// 2c. Check for get-follows deeplink
+	// Format: pubkyring://get-follows?callback={url}
+	if (urlWithoutProtocol.startsWith('get-follows?')) {
+		const queryString = urlWithoutProtocol.substring(12); // Remove "get-follows?"
+		const followsParams = parseGetFollowsParams(queryString);
+		if (followsParams) {
+			return {
+				action: InputAction.GetFollows,
+				data: { action: InputAction.GetFollows, params: followsParams },
 				source,
 				rawInput,
 			};
@@ -402,4 +545,22 @@ export const isUnknownAction = (
 	data: ActionData
 ): data is { action: InputAction.Unknown; params: { rawData: string } } => {
 	return data.action === InputAction.Unknown;
+};
+
+export const isDeriveKeypairAction = (
+	data: ActionData
+): data is { action: InputAction.DeriveKeypair; params: DeriveKeypairParams } => {
+	return data.action === InputAction.DeriveKeypair;
+};
+
+export const isGetProfileAction = (
+	data: ActionData
+): data is { action: InputAction.GetProfile; params: GetProfileParams } => {
+	return data.action === InputAction.GetProfile;
+};
+
+export const isGetFollowsAction = (
+	data: ActionData
+): data is { action: InputAction.GetFollows; params: GetFollowsParams } => {
+	return data.action === InputAction.GetFollows;
 };
