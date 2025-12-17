@@ -9,6 +9,10 @@
 import Foundation
 import React
 
+// Import PubkyNoise FFI bindings
+// The PubkyNoise.swift file contains FFI functions like deriveDeviceKey and publicKeyFromSecret
+// It will be included in the Xcode project along with PubkyNoise.xcframework
+
 @objc(PubkyNoiseModule)
 class PubkyNoiseModule: NSObject {
     
