@@ -75,3 +75,5 @@ yarn-error.log
 !.yarn/sdks
 !.yarn/versions
 tx
+android/app/src/main/jniLibs/
+ios/PubkyNoise.xcframework/
