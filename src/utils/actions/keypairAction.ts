@@ -21,9 +21,10 @@ import { ActionContext } from '../inputRouter';
 import { getPubkySecretKey } from '../pubky';
 import { showToast } from '../helpers';
 import i18n from '../../i18n';
-
-// TODO: Import from react-native-pubky-noise when native module is available
-// import { deriveX25519ForDeviceEpoch, x25519PkFromSk } from 'react-native-pubky-noise';
+import {
+	deriveX25519ForDeviceEpoch as nativeDeriveX25519,
+	isNativeModuleAvailable,
+} from '../PubkyNoiseModule';
 
 type KeypairActionData = {
 	action: InputAction.DeriveKeypair;
@@ -31,9 +32,9 @@ type KeypairActionData = {
 };
 
 /**
- * Derives X25519 keypair using pubky-noise KDF
+ * Derives X25519 keypair using pubky-noise KDF via native module
  *
- * Algorithm:
+ * Algorithm (implemented in Rust pubky-noise):
  * 1. HKDF-SHA512 with salt "pubky-noise-x25519:v1"
  * 2. Info = deviceId || epoch (little-endian u32)
  * 3. Clamp secret key for X25519
@@ -44,50 +45,41 @@ const deriveX25519Keypair = async (
 	deviceId: string,
 	epoch: number
 ): Promise<{ publicKey: string; secretKey: string }> => {
-	// TODO: Replace with actual native module call when available
-	// const secretKeyHex = await deriveX25519ForDeviceEpoch(ed25519SecretKey, deviceId, epoch);
-	// const publicKeyHex = await x25519PkFromSk(secretKeyHex);
-
-	// Temporary fallback: Use a simple hash-based derivation
-	// This should be replaced with the actual pubky-noise KDF
-	console.warn(
-		'[KeypairAction] Using fallback key derivation - native module not available'
-	);
-
-	// Simple fallback using available crypto
-	// This is NOT cryptographically equivalent to the Rust implementation
-	// and should only be used for testing until the native module is ready
-	const encoder = new TextEncoder();
-	const seedBytes = hexToBytes(ed25519SecretKey);
-	const deviceIdBytes = encoder.encode(deviceId);
-	const epochBytes = new Uint8Array(4);
-	new DataView(epochBytes.buffer).setUint32(0, epoch, true); // little-endian
-
-	// Combine for a pseudo-derivation (NOT SECURE - FOR TESTING ONLY)
-	const combined = new Uint8Array([
-		...seedBytes.slice(0, 16),
-		...deviceIdBytes.slice(0, 8),
-		...epochBytes,
-		...seedBytes.slice(16),
-	]);
-
-	// Use the first 32 bytes as secret key (clamped)
-	const sk = combined.slice(0, 32);
-	sk[0] &= 248;
-	sk[31] &= 127;
-	sk[31] |= 64;
-
-	// Derive public key (placeholder - actual implementation needs curve ops)
-	// For now, just hash the secret key as a placeholder
-	const pk = new Uint8Array(32);
-	for (let i = 0; i < 32; i++) {
-		pk[i] = sk[i] ^ 0x55; // XOR as placeholder
+	// Use the real native module for key derivation
+	if (!isNativeModuleAvailable()) {
+		throw new Error(
+			'PubkyNoiseModule native module is not available. ' +
+				'Ensure the native libraries are properly linked.'
+		);
 	}
 
+	// Convert deviceId to hex if it's not already
+	const deviceIdHex = isHexString(deviceId)
+		? deviceId
+		: stringToHex(deviceId);
+
+	const keypair = await nativeDeriveX25519(ed25519SecretKey, deviceIdHex, epoch);
+
 	return {
-		secretKey: bytesToHex(sk),
-		publicKey: bytesToHex(pk),
+		secretKey: keypair.secretKey,
+		publicKey: keypair.publicKey,
 	};
+};
+
+/**
+ * Check if a string is a valid hex string
+ */
+const isHexString = (str: string): boolean => {
+	return /^[0-9a-fA-F]+$/.test(str) && str.length % 2 === 0;
+};
+
+/**
+ * Convert a regular string to hex
+ */
+const stringToHex = (str: string): string => {
+	return Array.from(new TextEncoder().encode(str))
+		.map(b => b.toString(16).padStart(2, '0'))
+		.join('');
 };
 
 /**
@@ -192,20 +184,5 @@ const buildCallbackUrl = (
 	const separator = baseCallback.includes('?') ? '&' : '?';
 	const queryParams = new URLSearchParams(params).toString();
 	return `${baseCallback}${separator}${queryParams}`;
-};
-
-// Utility functions for hex encoding
-const hexToBytes = (hex: string): Uint8Array => {
-	const bytes = new Uint8Array(hex.length / 2);
-	for (let i = 0; i < hex.length; i += 2) {
-		bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
-	}
-	return bytes;
-};
-
-const bytesToHex = (bytes: Uint8Array): string => {
-	return Array.from(bytes)
-		.map(b => b.toString(16).padStart(2, '0'))
-		.join('');
 };
 
