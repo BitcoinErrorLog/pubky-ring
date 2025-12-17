@@ -1,60 +1,72 @@
-# Native Libraries Setup
+# Native Libraries
 
 The Pubky-ring app requires native libraries from `pubky-noise` for X25519 key derivation.
 
-## iOS
+## ✅ Native Libraries Now Included
 
-The iOS native module requires `PubkyNoise.xcframework`:
+**As of December 2024**: Native libraries are now included in the repository to simplify setup.
 
+### iOS
+- **Location**: `ios/PubkyNoise.xcframework/`
+- **Size**: ~2.5MB (universal framework for device and simulator)
+- **Architectures**: arm64 (device), arm64/x86_64 (simulator)
+
+### Android
+- **Location**: `android/app/src/main/jniLibs/`
+- **Size**: ~2.2MB total
+- **Architectures**: 
+  - `arm64-v8a/libpubky_noise.so` (device)
+  - `x86_64/libpubky_noise.so` (emulator)
+
+## Setup for Xcode (iOS)
+
+The framework is included but needs to be added to the Xcode project:
+
+1. Open `pubkyring.xcodeproj` in Xcode
+2. Select the project in the navigator
+3. Select the "pubkyring" target
+4. Go to "Frameworks, Libraries, and Embedded Content"
+5. Click "+" and "Add Files"
+6. Navigate to `ios/PubkyNoise.xcframework` and add it
+7. Set to "Embed & Sign"
+
+## Setup for Android
+
+No setup required - Android will automatically find and use the `.so` files in `jniLibs/`.
+
+## Rebuilding (Optional)
+
+If you need to rebuild the native libraries from source:
+
+### iOS
 ```bash
-# Build from pubky-noise repo
 cd /path/to/pubky-noise
 ./build-ios.sh
-
-# Copy to pubky-ring
 cp -r platforms/ios/PubkyNoise.xcframework /path/to/pubky-ring/ios/
 ```
 
-Add the framework to your Xcode project:
-1. Open `pubkyring.xcodeproj`
-2. Add `PubkyNoise.xcframework` to Frameworks
-3. Set "Embed & Sign" for the framework
-
-## Android
-
-The Android native module requires `libpubky_noise.so` libraries:
-
+### Android
 ```bash
-# Build from pubky-noise repo
 cd /path/to/pubky-noise
 ./build-android.sh
-
-# Copy to pubky-ring
-mkdir -p /path/to/pubky-ring/android/app/src/main/jniLibs/{arm64-v8a,x86_64}
 cp platforms/android/src/main/jniLibs/arm64-v8a/libpubky_noise.so \
    /path/to/pubky-ring/android/app/src/main/jniLibs/arm64-v8a/
 cp platforms/android/src/main/jniLibs/x86_64/libpubky_noise.so \
    /path/to/pubky-ring/android/app/src/main/jniLibs/x86_64/
 ```
 
-## Why aren't these in git?
+## Files Included in Repo
 
-Native libraries are large binary files (52MB+ for iOS). They should be:
-- Built locally from source, or
-- Downloaded from a release, or
-- Managed via git-lfs if needed
+### Native Libraries (NEW)
+- `ios/PubkyNoise.xcframework/` - iOS universal framework
+- `android/app/src/main/jniLibs/arm64-v8a/libpubky_noise.so` - Android ARM64
+- `android/app/src/main/jniLibs/x86_64/libpubky_noise.so` - Android x86_64
 
-The Kotlin and Swift bindings ARE committed - only the compiled `.so`/`.a` files are excluded.
-
-## Files Excluded
-
-- `ios/PubkyNoise.xcframework/` (52MB)
-- `android/app/src/main/jniLibs/*.so` (1.8MB)
-
-## Files Included
-
-- `android/app/src/main/java/com/pubky/noise/pubky_noise.kt` - Kotlin FFI bindings
+### FFI Bindings
 - `ios/pubkyring/PubkyNoise.swift` - Swift FFI bindings
-- `android/app/src/main/java/to/pubkyring/PubkyNoiseModule.kt` - React Native module
-- `ios/pubkyring/PubkyNoiseModule.swift` - React Native module
+- `android/app/src/main/java/com/pubky/noise/pubky_noise.kt` - Kotlin FFI bindings
+
+### React Native Modules
+- `ios/pubkyring/PubkyNoiseModule.swift` - iOS RN bridge
+- `android/app/src/main/java/to/pubkyring/PubkyNoiseModule.kt` - Android RN bridge
 
