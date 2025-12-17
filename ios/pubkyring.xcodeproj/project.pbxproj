@@ -12,6 +12,8 @@
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		70F9B56BE652426C904D16F4 /* InterTight-VariableFont_wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C21B8554B47148DBBCC60B15 /* InterTight-VariableFont_wght.ttf */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
+		761780EE2CA45675006654EF /* PubkyNoise.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EB2CA45675006654EF /* PubkyNoise.swift */; };
+		761780EF2CA45676006654F0 /* PubkyNoiseModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EA2CA45676006654F0 /* PubkyNoiseModule.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		F0B0F0C33BFC0AA7CD867F18 /* libPods-pubkyring.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5F66FC2D5C5C4019367FA619 /* libPods-pubkyring.a */; };
 /* End PBXBuildFile section */
@@ -22,6 +24,8 @@
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = pubkyring/Info.plist; sourceTree = "<group>"; };
 		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = pubkyring/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		5F66FC2D5C5C4019367FA619 /* libPods-pubkyring.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-pubkyring.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		761780EA2CA45676006654F0 /* PubkyNoiseModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PubkyNoiseModule.swift; path = pubkyring/PubkyNoiseModule.swift; sourceTree = "<group>"; };
+		761780EB2CA45675006654EF /* PubkyNoise.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PubkyNoise.swift; path = pubkyring/PubkyNoise.swift; sourceTree = "<group>"; };
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = pubkyring/AppDelegate.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = pubkyring/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		B2ABDED632F64E4DABAEE478 /* InterTight-Italic-VariableFont_wght.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "InterTight-Italic-VariableFont_wght.ttf"; path = "../assets/fonts/InterTight-Italic-VariableFont_wght.ttf"; sourceTree = "<group>"; };
@@ -48,6 +52,8 @@
 			children = (
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
+				761780EB2CA45675006654EF /* PubkyNoise.swift */,
+				761780EA2CA45676006654F0 /* PubkyNoiseModule.swift */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
@@ -271,6 +277,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
+				761780EE2CA45675006654EF /* PubkyNoise.swift in Sources */,
+				761780EF2CA45676006654F0 /* PubkyNoiseModule.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
