@@ -9,6 +9,7 @@
 
 @interface RCT_EXTERN_MODULE(PubkyNoiseModule, NSObject)
 
+// Key Derivation
 RCT_EXTERN_METHOD(deriveX25519ForDeviceEpoch:(NSString *)seedHex
                   deviceIdHex:(NSString *)deviceIdHex
                   epoch:(int)epoch
@@ -19,26 +20,89 @@ RCT_EXTERN_METHOD(getPublicKey:(NSString *)secretKeyHex
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
-RCT_EXTERN_METHOD(createNoiseManager:(NSString *)secretKeyHex
+// Manager Lifecycle
+RCT_EXTERN_METHOD(createClientManager:(NSString *)clientSeedHex
+                  clientKid:(NSString *)clientKid
+                  deviceIdHex:(NSString *)deviceIdHex
                   configType:(NSString *)configType
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
-RCT_EXTERN_METHOD(startNoiseManager:(NSString *)managerId
+RCT_EXTERN_METHOD(createServerManager:(NSString *)serverSeedHex
+                  serverKid:(NSString *)serverKid
+                  deviceIdHex:(NSString *)deviceIdHex
+                  configType:(NSString *)configType
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
-RCT_EXTERN_METHOD(stopNoiseManager:(NSString *)managerId
+RCT_EXTERN_METHOD(destroyManager:(NSString *)managerId
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
-RCT_EXTERN_METHOD(getSessionState:(NSString *)managerId
+// Connection Handshake
+RCT_EXTERN_METHOD(initiateConnection:(NSString *)managerId
+                  serverPkHex:(NSString *)serverPkHex
+                  hint:(NSString *)hint
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
-RCT_EXTERN_METHOD(destroyNoiseManager:(NSString *)managerId
+RCT_EXTERN_METHOD(acceptConnection:(NSString *)managerId
+                  firstMessageHex:(NSString *)firstMessageHex
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(completeConnection:(NSString *)managerId
+                  sessionId:(NSString *)sessionId
+                  serverResponseHex:(NSString *)serverResponseHex
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(connectClient:(NSString *)managerId
+                  serverPkHex:(NSString *)serverPkHex
+                  hint:(NSString *)hint
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+// Encryption/Decryption
+RCT_EXTERN_METHOD(encrypt:(NSString *)managerId
+                  sessionId:(NSString *)sessionId
+                  plaintextHex:(NSString *)plaintextHex
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(decrypt:(NSString *)managerId
+                  sessionId:(NSString *)sessionId
+                  ciphertextHex:(NSString *)ciphertextHex
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+// Session Management
+RCT_EXTERN_METHOD(listSessions:(NSString *)managerId
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(getSessionStatus:(NSString *)managerId
+                  sessionId:(NSString *)sessionId
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(removeSession:(NSString *)managerId
+                  sessionId:(NSString *)sessionId
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(saveSessionState:(NSString *)managerId
+                  sessionId:(NSString *)sessionId
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(restoreSessionState:(NSString *)managerId
+                  sessionId:(NSString *)sessionId
+                  peerStaticPkHex:(NSString *)peerStaticPkHex
+                  writeCounter:(double)writeCounter
+                  readCounter:(double)readCounter
+                  status:(NSString *)status
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
 @end
-

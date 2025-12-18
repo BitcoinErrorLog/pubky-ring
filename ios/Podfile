@@ -60,5 +60,50 @@ target 'pubkyring' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+
+    # Add PubkyNoise XCFramework paths and linking to main target
+    main_project_path = File.join(installer.sandbox.root.parent, 'pubkyring.xcodeproj')
+    main_project = Xcodeproj::Project.open(main_project_path)
+    main_project.targets.each do |target|
+      if target.name == 'pubkyring'
+        target.build_configurations.each do |config|
+          is_simulator = config.name.include?('Debug')
+          
+          # Swift module import path based on build config
+          if is_simulator
+            xcframework_modules = '$(SRCROOT)/PubkyNoise.xcframework/ios-arm64_x86_64-simulator/Modules'
+            xcframework_lib = '$(SRCROOT)/PubkyNoise.xcframework/ios-arm64_x86_64-simulator'
+          else
+            xcframework_modules = '$(SRCROOT)/PubkyNoise.xcframework/ios-arm64/Modules'
+            xcframework_lib = '$(SRCROOT)/PubkyNoise.xcframework/ios-arm64'
+          end
+          
+          # SWIFT_INCLUDE_PATHS - reset and add our path
+          existing_swift = config.build_settings['SWIFT_INCLUDE_PATHS'] || ''
+          unless existing_swift.include?('PubkyNoise.xcframework')
+            config.build_settings['SWIFT_INCLUDE_PATHS'] = "$(inherited) #{xcframework_modules}"
+          end
+          
+          # LIBRARY_SEARCH_PATHS
+          lib_paths = config.build_settings['LIBRARY_SEARCH_PATHS'] || []
+          lib_paths = [lib_paths] if lib_paths.is_a?(String)
+          unless lib_paths.any? { |p| p.to_s.include?('PubkyNoise.xcframework') }
+            lib_paths << '$(inherited)'
+            lib_paths << xcframework_lib
+            config.build_settings['LIBRARY_SEARCH_PATHS'] = lib_paths
+          end
+          
+          # OTHER_LDFLAGS - link the library
+          ld_flags = config.build_settings['OTHER_LDFLAGS'] || []
+          ld_flags = [ld_flags] if ld_flags.is_a?(String)
+          unless ld_flags.include?('-lpubky_noise')
+            ld_flags << '$(inherited)'
+            ld_flags << '-lpubky_noise'
+            config.build_settings['OTHER_LDFLAGS'] = ld_flags
+          end
+        end
+      end
+    end
+    main_project.save
   end
 end
