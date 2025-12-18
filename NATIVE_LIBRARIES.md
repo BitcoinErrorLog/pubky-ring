@@ -20,7 +20,18 @@ The Pubky-ring app requires native libraries from `pubky-noise` for X25519 key d
 
 ## Setup for Xcode (iOS)
 
-The framework is included but needs to be added to the Xcode project:
+The framework is automatically linked via CocoaPods:
+
+1. Run `cd ios && npx pod-install --yes`
+2. Open `pubkyring.xcworkspace` in Xcode
+3. Build and run
+
+The `Podfile` post_install hook automatically:
+- Sets `SWIFT_INCLUDE_PATHS` for the PubkyNoiseFFI module
+- Sets `LIBRARY_SEARCH_PATHS` to find `libpubky_noise.a`
+- Adds `-lpubky_noise` to linker flags
+
+**Manual setup (if CocoaPods fails)**:
 
 1. Open `pubkyring.xcodeproj` in Xcode
 2. Select the project in the navigator
@@ -28,7 +39,7 @@ The framework is included but needs to be added to the Xcode project:
 4. Go to "Frameworks, Libraries, and Embedded Content"
 5. Click "+" and "Add Files"
 6. Navigate to `ios/PubkyNoise.xcframework` and add it
-7. Set to "Embed & Sign"
+7. Set to "Do Not Embed" (it's a static library)
 
 ## Setup for Android
 
@@ -63,10 +74,15 @@ cp platforms/android/src/main/jniLibs/x86_64/libpubky_noise.so \
 - `android/app/src/main/jniLibs/x86_64/libpubky_noise.so` - Android x86_64
 
 ### FFI Bindings
-- `ios/pubkyring/PubkyNoise.swift` - Swift FFI bindings
+- `ios/pubkyring/PubkyNoise.swift` - Swift FFI bindings (UniFFI-generated)
 - `android/app/src/main/java/com/pubky/noise/pubky_noise.kt` - Kotlin FFI bindings
 
 ### React Native Modules
-- `ios/pubkyring/PubkyNoiseModule.swift` - iOS RN bridge
+- `ios/pubkyring/PubkyNoiseModule.swift` - iOS RN bridge (key derivation, encryption, session management)
+- `ios/pubkyring/PubkyNoiseModule.m` - Objective-C bridge declarations
 - `android/app/src/main/java/to/pubkyring/PubkyNoiseModule.kt` - Android RN bridge
+
+### CocoaPods Integration
+- `ios/PubkyNoise.podspec` - Local pod spec for XCFramework integration
+- `ios/PubkyNoise.xcframework/*/Modules/module.modulemap` - Module maps for Swift imports
 
