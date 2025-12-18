@@ -125,6 +125,9 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+
+    // JNA for UniFFI-generated Rust bindings
+    implementation("net.java.dev.jna:jna:5.14.0@aar")
 }
 
 apply plugin: "kotlin-android"

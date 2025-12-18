@@ -1536,34 +1536,34 @@ sealed class FfiNoiseException: Exception() {
     
     class Ring(
         
-        val `message`: String
+        val `msg`: String
         ) : FfiNoiseException() {
         override val message
-            get() = "message=${ `message` }"
+            get() = "message=${ `msg` }"
     }
     
     class Pkarr(
         
-        val `message`: String
+        val `msg`: String
         ) : FfiNoiseException() {
         override val message
-            get() = "message=${ `message` }"
+            get() = "message=${ `msg` }"
     }
     
     class Snow(
         
-        val `message`: String
+        val `msg`: String
         ) : FfiNoiseException() {
         override val message
-            get() = "message=${ `message` }"
+            get() = "message=${ `msg` }"
     }
     
     class Serde(
         
-        val `message`: String
+        val `msg`: String
         ) : FfiNoiseException() {
         override val message
-            get() = "message=${ `message` }"
+            get() = "message=${ `msg` }"
     }
     
     class IdentityVerify(
@@ -1580,10 +1580,10 @@ sealed class FfiNoiseException: Exception() {
     
     class Policy(
         
-        val `message`: String
+        val `msg`: String
         ) : FfiNoiseException() {
         override val message
-            get() = "message=${ `message` }"
+            get() = "message=${ `msg` }"
     }
     
     class InvalidPeerKey(
@@ -1594,42 +1594,42 @@ sealed class FfiNoiseException: Exception() {
     
     class Network(
         
-        val `message`: String
+        val `msg`: String
         ) : FfiNoiseException() {
         override val message
-            get() = "message=${ `message` }"
+            get() = "message=${ `msg` }"
     }
     
     class Timeout(
         
-        val `message`: String
+        val `msg`: String
         ) : FfiNoiseException() {
         override val message
-            get() = "message=${ `message` }"
+            get() = "message=${ `msg` }"
     }
     
     class Storage(
         
-        val `message`: String
+        val `msg`: String
         ) : FfiNoiseException() {
         override val message
-            get() = "message=${ `message` }"
+            get() = "message=${ `msg` }"
     }
     
     class Decryption(
         
-        val `message`: String
+        val `msg`: String
         ) : FfiNoiseException() {
         override val message
-            get() = "message=${ `message` }"
+            get() = "message=${ `msg` }"
     }
     
     class RateLimited(
         
-        val `message`: String
+        val `msg`: String
         ) : FfiNoiseException() {
         override val message
-            get() = "message=${ `message` }"
+            get() = "message=${ `msg` }"
     }
     
     class MaxSessionsExceeded(
@@ -1640,26 +1640,26 @@ sealed class FfiNoiseException: Exception() {
     
     class SessionExpired(
         
-        val `message`: String
+        val `msg`: String
         ) : FfiNoiseException() {
         override val message
-            get() = "message=${ `message` }"
+            get() = "message=${ `msg` }"
     }
     
     class ConnectionReset(
         
-        val `message`: String
+        val `msg`: String
         ) : FfiNoiseException() {
         override val message
-            get() = "message=${ `message` }"
+            get() = "message=${ `msg` }"
     }
     
     class Other(
         
-        val `message`: String
+        val `msg`: String
         ) : FfiNoiseException() {
         override val message
-            get() = "message=${ `message` }"
+            get() = "message=${ `msg` }"
     }
     
 
@@ -1812,22 +1812,22 @@ public object FfiConverterTypeFfiNoiseError : FfiConverterRustBuffer<FfiNoiseExc
         when(value) {
             is FfiNoiseException.Ring -> {
                 buf.putInt(1)
-                FfiConverterString.write(value.`message`, buf)
+                FfiConverterString.write(value.`msg`, buf)
                 Unit
             }
             is FfiNoiseException.Pkarr -> {
                 buf.putInt(2)
-                FfiConverterString.write(value.`message`, buf)
+                FfiConverterString.write(value.`msg`, buf)
                 Unit
             }
             is FfiNoiseException.Snow -> {
                 buf.putInt(3)
-                FfiConverterString.write(value.`message`, buf)
+                FfiConverterString.write(value.`msg`, buf)
                 Unit
             }
             is FfiNoiseException.Serde -> {
                 buf.putInt(4)
-                FfiConverterString.write(value.`message`, buf)
+                FfiConverterString.write(value.`msg`, buf)
                 Unit
             }
             is FfiNoiseException.IdentityVerify -> {
@@ -1840,7 +1840,7 @@ public object FfiConverterTypeFfiNoiseError : FfiConverterRustBuffer<FfiNoiseExc
             }
             is FfiNoiseException.Policy -> {
                 buf.putInt(7)
-                FfiConverterString.write(value.`message`, buf)
+                FfiConverterString.write(value.`msg`, buf)
                 Unit
             }
             is FfiNoiseException.InvalidPeerKey -> {
@@ -1849,27 +1849,27 @@ public object FfiConverterTypeFfiNoiseError : FfiConverterRustBuffer<FfiNoiseExc
             }
             is FfiNoiseException.Network -> {
                 buf.putInt(9)
-                FfiConverterString.write(value.`message`, buf)
+                FfiConverterString.write(value.`msg`, buf)
                 Unit
             }
             is FfiNoiseException.Timeout -> {
                 buf.putInt(10)
-                FfiConverterString.write(value.`message`, buf)
+                FfiConverterString.write(value.`msg`, buf)
                 Unit
             }
             is FfiNoiseException.Storage -> {
                 buf.putInt(11)
-                FfiConverterString.write(value.`message`, buf)
+                FfiConverterString.write(value.`msg`, buf)
                 Unit
             }
             is FfiNoiseException.Decryption -> {
                 buf.putInt(12)
-                FfiConverterString.write(value.`message`, buf)
+                FfiConverterString.write(value.`msg`, buf)
                 Unit
             }
             is FfiNoiseException.RateLimited -> {
                 buf.putInt(13)
-                FfiConverterString.write(value.`message`, buf)
+                FfiConverterString.write(value.`msg`, buf)
                 Unit
             }
             is FfiNoiseException.MaxSessionsExceeded -> {
@@ -1878,17 +1878,17 @@ public object FfiConverterTypeFfiNoiseError : FfiConverterRustBuffer<FfiNoiseExc
             }
             is FfiNoiseException.SessionExpired -> {
                 buf.putInt(15)
-                FfiConverterString.write(value.`message`, buf)
+                FfiConverterString.write(value.`msg`, buf)
                 Unit
             }
             is FfiNoiseException.ConnectionReset -> {
                 buf.putInt(16)
-                FfiConverterString.write(value.`message`, buf)
+                FfiConverterString.write(value.`msg`, buf)
                 Unit
             }
             is FfiNoiseException.Other -> {
                 buf.putInt(17)
-                FfiConverterString.write(value.`message`, buf)
+                FfiConverterString.write(value.`msg`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
