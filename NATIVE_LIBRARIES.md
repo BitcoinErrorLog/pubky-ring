@@ -45,6 +45,35 @@ The `Podfile` post_install hook automatically:
 
 No setup required - Android will automatically find and use the `.so` files in `jniLibs/`.
 
+### Running on Emulator (without Metro)
+
+If your emulator can't connect to Metro bundler, pre-bundle the JS:
+
+```bash
+# Create JS bundle
+npx react-native bundle --platform android --dev false \
+  --entry-file index.js \
+  --bundle-output android/app/src/main/assets/index.android.bundle \
+  --assets-dest android/app/src/main/res
+
+# Rebuild and install
+cd android && ./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+### Running with Metro (development)
+
+```bash
+# Start Metro bundler
+npm start
+
+# In another terminal, set up adb reverse
+adb reverse tcp:8081 tcp:8081
+
+# Run the app
+npx react-native run-android
+```
+
 ## Rebuilding (Optional)
 
 If you need to rebuild the native libraries from source:

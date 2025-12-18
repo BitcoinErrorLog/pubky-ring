@@ -77,3 +77,9 @@ yarn-error.log
 tx
 android/app/src/main/jniLibs/
 ios/PubkyNoise.xcframework/
+
+# Generated JS bundles
+android/app/src/main/assets/index.android.bundle
+android/app/src/main/res/drawable-*
+android/app/src/main/res/raw/
+
