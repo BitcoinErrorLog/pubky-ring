@@ -28,6 +28,7 @@ export enum InputAction {
 	DeriveKeypair = 'derive_keypair',
 	GetProfile = 'get_profile',
 	GetFollows = 'get_follows',
+	PaykitConnect = 'paykit_connect', // Combined session + noise keys for Paykit
 	Unknown = 'unknown',
 }
 
@@ -83,6 +84,13 @@ export interface GetFollowsParams {
 	app?: string; // App namespace, defaults to 'pubky.app'
 }
 
+// Paykit connect parameters - combined session + noise keys
+export interface PaykitConnectParams {
+	deviceId: string;
+	callback: string;
+	includeEpoch1?: boolean; // Include epoch 1 keypair for rotation, defaults to true
+}
+
 // Union type for all action data
 export type ActionData =
 	| { action: InputAction.Auth; params: AuthParams; rawUrl: string }
@@ -94,6 +102,7 @@ export type ActionData =
 	| { action: InputAction.DeriveKeypair; params: DeriveKeypairParams }
 	| { action: InputAction.GetProfile; params: GetProfileParams }
 	| { action: InputAction.GetFollows; params: GetFollowsParams }
+	| { action: InputAction.PaykitConnect; params: PaykitConnectParams }
 	| { action: InputAction.Unknown; params: { rawData: string } };
 
 // The standardized parsed input type
@@ -283,6 +292,33 @@ const parseGetFollowsParams = (queryString: string): GetFollowsParams | null => 
 };
 
 /**
+ * Parses paykit-connect deeplink parameters
+ * Format: paykit-connect?deviceId={device_id}&callback={callback_url}&includeEpoch1={bool}
+ * Example: pubkyring://paykit-connect?deviceId=abc123&callback=bitkit://paykit-setup
+ *
+ * Returns session + noise keys in a single callback for complete Paykit setup.
+ */
+const parsePaykitConnectParams = (queryString: string): PaykitConnectParams | null => {
+	try {
+		const params = new URLSearchParams(queryString);
+		const deviceId = params.get('deviceId');
+		const callback = params.get('callback');
+		if (!deviceId || !callback) {
+			return null;
+		}
+		const includeEpoch1Str = params.get('includeEpoch1');
+		const includeEpoch1 = includeEpoch1Str === 'false' ? false : true; // Default to true
+		return {
+			deviceId,
+			callback: decodeURIComponent(callback),
+			includeEpoch1,
+		};
+	} catch {
+		return null;
+	}
+};
+
+/**
  * Main parsing function - the single entry point for all input parsing
  *
  * @param rawInput - The raw input string from any source
@@ -404,6 +440,21 @@ export const parseInput = async (
 			return {
 				action: InputAction.GetFollows,
 				data: { action: InputAction.GetFollows, params: followsParams },
+				source,
+				rawInput,
+			};
+		}
+	}
+
+	// 2d. Check for paykit-connect deeplink (combined session + noise keys)
+	// Format: pubkyring://paykit-connect?deviceId={id}&callback={url}
+	if (urlWithoutProtocol.startsWith('paykit-connect?')) {
+		const queryString = urlWithoutProtocol.substring(15); // Remove "paykit-connect?"
+		const paykitParams = parsePaykitConnectParams(queryString);
+		if (paykitParams) {
+			return {
+				action: InputAction.PaykitConnect,
+				data: { action: InputAction.PaykitConnect, params: paykitParams },
 				source,
 				rawInput,
 			};
@@ -563,4 +614,10 @@ export const isGetFollowsAction = (
 	data: ActionData
 ): data is { action: InputAction.GetFollows; params: GetFollowsParams } => {
 	return data.action === InputAction.GetFollows;
+};
+
+export const isPaykitConnectAction = (
+	data: ActionData
+): data is { action: InputAction.PaykitConnect; params: PaykitConnectParams } => {
+	return data.action === InputAction.PaykitConnect;
 };

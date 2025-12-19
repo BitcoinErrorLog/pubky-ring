@@ -19,6 +19,7 @@ import {
 	isDeriveKeypairAction,
 	isGetProfileAction,
 	isGetFollowsAction,
+	isPaykitConnectAction,
 	isUnknownAction,
 } from './inputParser';
 import { handleAuthAction } from './actions/authAction';
@@ -29,6 +30,7 @@ import { handleSessionAction } from './actions/sessionAction';
 import { handleKeypairAction } from './actions/keypairAction';
 import { handleProfileAction } from './actions/profileAction';
 import { handleFollowsAction } from './actions/followsAction';
+import { handlePaykitConnectAction } from './actions/paykitConnectAction';
 import i18n from '../i18n';
 import { getErrorMessage } from './errorHandler';
 
@@ -128,6 +130,13 @@ export const routeInput = async (
 				: err(getErrorMessage(result.error, 'Failed to get follows'));
 		}
 
+		if (isPaykitConnectAction(data)) {
+			const result = await handlePaykitConnectAction(data, effectiveContext);
+			return result.isOk()
+				? ok({ success: true, action: InputAction.PaykitConnect, pubky: result.value, message: 'Paykit connected successfully' })
+				: err(getErrorMessage(result.error, 'Failed to connect Paykit'));
+		}
+
 		if (isUnknownAction(data)) {
 			console.log('[InputRouter] Unknown input format:', data.params.rawData.substring(0, 100));
 			return err(i18n.t('errors.unrecognizedFormat'));
@@ -150,6 +159,7 @@ export const actionRequiresPubky = (action: InputAction): boolean => {
 		InputAction.Session,
 		InputAction.DeriveKeypair,
 		InputAction.GetFollows,
+		InputAction.PaykitConnect,
 	].includes(action);
 };
 
@@ -164,5 +174,6 @@ export const actionRequiresNetwork = (action: InputAction): boolean => {
 		InputAction.Session,
 		InputAction.GetProfile,
 		InputAction.GetFollows,
+		InputAction.PaykitConnect,
 	].includes(action);
 };

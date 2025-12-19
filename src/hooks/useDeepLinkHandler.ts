@@ -70,21 +70,16 @@ export const useDeepLinkHandler = (
 					return;
 				}
 
-				if (signedUpPubkyKeys.length > 1) {
-					// Multiple pubkys - show selection sheet
-					await showPubkySelectionSheet(
-						parsedInput,
-						'deeplink',
-						dispatch,
-						async (selectedPubky: string) => {
-							await routeInputWithContext(parsedInput, selectedPubky, 'deeplink', dispatch);
-						}
-					);
-					return;
-				}
-
-				// Single pubky - use it directly
-				await routeInputWithContext(parsedInput, signedUpPubkyKeys[0], 'deeplink', dispatch);
+				// Always show selection sheet for actions requiring pubky
+				// This gives user a chance to confirm even with single pubky
+				await showPubkySelectionSheet(
+					parsedInput,
+					'deeplink',
+					dispatch,
+					async (selectedPubky: string) => {
+						await routeInputWithContext(parsedInput, selectedPubky, 'deeplink', dispatch);
+					}
+				);
 				return;
 			}
 
