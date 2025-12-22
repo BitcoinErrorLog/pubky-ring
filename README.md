@@ -4,6 +4,18 @@
 
 Pubky Ring is the key manager for your identity in the Pubky ecosystem. It lets you securely manage your pubkys—the public keys that power your presence across decentralized apps.
 
+## Paykit Integration Guide
+
+**For detailed information on how Bitkit integrates with Ring for Paykit support, see:**
+- **[Bitkit + Paykit Integration Master Guide](https://github.com/BitcoinErrorLog/paykit-rs/blob/main/docs/BITKIT_PAYKIT_INTEGRATION_MASTERGUIDE.md)**
+
+This guide covers:
+- Ring's PubkyNoiseModule native architecture (iOS + Android)
+- Paykit connect action (`paykit-connect` deep link handler)
+- Session + noise key derivation and callback protocols
+- Cross-device authentication with relay polling
+- Integration with Bitkit iOS and Bitkit Android
+
 # What You Can Do
 - Authorize or revoke access to services
 - Organize and sync your pubkys across devices
