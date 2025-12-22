@@ -39,7 +39,14 @@ class PubkyNoiseModule: NSObject {
                 return
             }
             
-            let secretKey = deriveDeviceKey(seed: seed, deviceId: deviceId, epoch: epoch)
+            // Note: deriveDeviceKey now throws in pubky-noise 1.1.0+
+            let secretKey: Data
+            do {
+                secretKey = try deriveDeviceKey(seed: seed, deviceId: deviceId, epoch: epoch)
+            } catch {
+                reject("KEY_DERIVATION_FAILED", "Failed to derive device key: \(error)", error)
+                return
+            }
             let publicKey = publicKeyFromSecret(secret: secretKey)
             
             let result: [String: Any] = [
