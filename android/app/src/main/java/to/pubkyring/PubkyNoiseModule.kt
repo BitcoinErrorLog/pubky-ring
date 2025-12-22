@@ -99,7 +99,7 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
      * Create a new client noise manager
      */
     @ReactMethod
-    fun newClientNoiseManager(
+    fun createClientManager(
         clientSeedHex: String,
         clientKid: String,
         deviceIdHex: String,
@@ -195,9 +195,9 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
                     return@launch
                 }
 
-                val clientPk = manager.completeConnection(sessionId, serverResponse)
+                val finalSessionId = manager.completeConnection(sessionId, serverResponse)
                 val response = Arguments.createMap().apply {
-                    putString("clientPk", clientPk)
+                    putString("sessionId", finalSessionId)
                 }
                 promise.resolve(response)
             } catch (e: Exception) {
@@ -212,7 +212,7 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
      * Create a new server noise manager
      */
     @ReactMethod
-    fun newServerNoiseManager(
+    fun createServerManager(
         serverSeedHex: String,
         serverKid: String,
         deviceIdHex: String,
@@ -305,7 +305,10 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
 
                 val plaintext = hexStringToByteArray(plaintextHex)
                 val ciphertext = manager.encrypt(sessionId, plaintext)
-                promise.resolve(byteArrayToHexString(ciphertext))
+                val result = Arguments.createMap().apply {
+                    putString("ciphertext", byteArrayToHexString(ciphertext))
+                }
+                promise.resolve(result)
             } catch (e: Exception) {
                 promise.reject("ENCRYPTION_ERROR", "Failed to encrypt data: ${e.message}", e)
             }
@@ -332,7 +335,10 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
 
                 val ciphertext = hexStringToByteArray(ciphertextHex)
                 val plaintext = manager.decrypt(sessionId, ciphertext)
-                promise.resolve(byteArrayToHexString(plaintext))
+                val result = Arguments.createMap().apply {
+                    putString("plaintext", byteArrayToHexString(plaintext))
+                }
+                promise.resolve(result)
             } catch (e: Exception) {
                 promise.reject("DECRYPTION_ERROR", "Failed to decrypt data: ${e.message}", e)
             }
@@ -357,7 +363,14 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
                 }
 
                 val status = manager.getStatus(sessionId)
-                promise.resolve(status?.name?.lowercase())
+                val result = Arguments.createMap().apply {
+                    if (status != null) {
+                        putString("status", status.name.lowercase())
+                    } else {
+                        putNull("status")
+                    }
+                }
+                promise.resolve(result)
             } catch (e: Exception) {
                 promise.reject("STATUS_ERROR", "Failed to get session status: ${e.message}", e)
             }
@@ -415,8 +428,11 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
                 }
 
                 val sessions = manager.listSessions()
-                val result = Arguments.createArray()
-                sessions.forEach { result.pushString(it) }
+                val sessionsArray = Arguments.createArray()
+                sessions.forEach { sessionsArray.pushString(it) }
+                val result = Arguments.createMap().apply {
+                    putArray("sessions", sessionsArray)
+                }
                 promise.resolve(result)
             } catch (e: Exception) {
                 promise.reject("SESSION_ERROR", "Failed to list sessions: ${e.message}", e)
@@ -533,7 +549,7 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
      * Destroy a noise manager
      */
     @ReactMethod
-    fun destroyNoiseManager(managerId: String, promise: Promise) {
+    fun destroyManager(managerId: String, promise: Promise) {
         managers.remove(managerId)
         promise.resolve(true)
     }
