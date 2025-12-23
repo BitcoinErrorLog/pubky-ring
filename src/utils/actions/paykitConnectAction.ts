@@ -268,6 +268,9 @@ const handleSecureHandoff = async ({
 	};
 
 	// Store payload at /pub/paykit.app/v0/handoff/{request_id}
+	// Note: TTL enforcement relies on homeserver honoring the expires_at field in the payload
+	// Ideally, the homeserver would delete files automatically after expires_at timestamp
+	// Alternative: Bitkit deletes after successful fetch (implemented in Phase 2B)
 	const handoffPath = `pubky://${pubky}/pub/paykit.app/v0/handoff/${requestId}`;
 
 	const putResult = await put(handoffPath, payload, ed25519SecretKey);
