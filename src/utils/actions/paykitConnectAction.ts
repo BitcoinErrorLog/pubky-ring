@@ -191,29 +191,18 @@ export const handlePaykitConnectAction = async (
 			keypair1 = await deriveX25519Keypair(ed25519SecretKey, deviceId, 1);
 		}
 
-		// Choose mode based on whether ephemeralPk is provided
-		if (ephemeralPk) {
-			// SECURE HANDOFF MODE
-			return await handleSecureHandoff({
-				pubky,
-				sessionInfo,
-				deviceId,
-				keypair0,
-				keypair1,
-				callback,
-				ed25519SecretKey,
-			});
-		} else {
-			// LEGACY MODE - return secrets in URL (backward compatible)
-			return await handleLegacyCallback({
-				pubky,
-				sessionInfo,
-				deviceId,
-				keypair0,
-				keypair1,
-				callback,
-			});
-		}
+		// Always use secure handoff for paykit-connect
+		// Secrets are stored on homeserver at an unguessable path, not passed in URL
+		// Security relies on: 256-bit random path + 5-min TTL + TLS + immediate deletion after fetch
+		return await handleSecureHandoff({
+			pubky,
+			sessionInfo,
+			deviceId,
+			keypair0,
+			keypair1,
+			callback,
+			ed25519SecretKey,
+		});
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 		console.error('[PaykitConnectAction] Error:', errorMessage);
