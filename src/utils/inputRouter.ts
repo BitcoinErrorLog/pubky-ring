@@ -20,6 +20,7 @@ import {
 	isGetProfileAction,
 	isGetFollowsAction,
 	isPaykitConnectAction,
+	isSignMessageAction,
 	isUnknownAction,
 } from './inputParser';
 import { handleAuthAction } from './actions/authAction';
@@ -31,6 +32,7 @@ import { handleKeypairAction } from './actions/keypairAction';
 import { handleProfileAction } from './actions/profileAction';
 import { handleFollowsAction } from './actions/followsAction';
 import { handlePaykitConnectAction } from './actions/paykitConnectAction';
+import { signMessageAction } from './actions/signMessageAction';
 import i18n from '../i18n';
 import { getErrorMessage } from './errorHandler';
 
@@ -135,6 +137,13 @@ export const routeInput = async (
 			return result.isOk()
 				? ok({ success: true, action: InputAction.PaykitConnect, pubky: result.value, message: 'Paykit connected successfully' })
 				: err(getErrorMessage(result.error, 'Failed to connect Paykit'));
+		}
+
+		if (isSignMessageAction(data)) {
+			const result = await signMessageAction(data, effectiveContext);
+			return result.isOk()
+				? ok({ success: true, action: InputAction.SignMessage, message: 'Message signed successfully' })
+				: err(getErrorMessage(result.error, 'Failed to sign message'));
 		}
 
 		if (isUnknownAction(data)) {

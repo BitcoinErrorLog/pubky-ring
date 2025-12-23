@@ -29,6 +29,7 @@ export enum InputAction {
 	GetProfile = 'get_profile',
 	GetFollows = 'get_follows',
 	PaykitConnect = 'paykit_connect', // Combined session + noise keys for Paykit
+	SignMessage = 'sign_message', // Sign a message with Ed25519 key
 	Unknown = 'unknown',
 }
 
@@ -92,6 +93,12 @@ export interface PaykitConnectParams {
 	ephemeralPk?: string; // Optional: Bitkit's ephemeral X25519 public key for secure handoff
 }
 
+// Sign message parameters
+export interface SignMessageParams {
+	message: string; // Message to sign (UTF-8 string)
+	callback: string; // Callback URL to return signature
+}
+
 // Union type for all action data
 export type ActionData =
 	| { action: InputAction.Auth; params: AuthParams; rawUrl: string }
@@ -104,6 +111,7 @@ export type ActionData =
 	| { action: InputAction.GetProfile; params: GetProfileParams }
 	| { action: InputAction.GetFollows; params: GetFollowsParams }
 	| { action: InputAction.PaykitConnect; params: PaykitConnectParams }
+	| { action: InputAction.SignMessage; params: SignMessageParams }
 	| { action: InputAction.Unknown; params: { rawData: string } };
 
 // The standardized parsed input type
@@ -323,6 +331,30 @@ const parsePaykitConnectParams = (queryString: string): PaykitConnectParams | nu
 };
 
 /**
+ * Parses sign-message deeplink parameters
+ * Format: sign-message?message={message}&callback={callback_url}
+ * Example: pubkyring://sign-message?message=POST:/register:...&callback=bitkit://signature-result
+ *
+ * Returns the message to sign and callback URL for the signature.
+ */
+const parseSignMessageParams = (queryString: string): SignMessageParams | null => {
+	try {
+		const params = new URLSearchParams(queryString);
+		const message = params.get('message');
+		const callback = params.get('callback');
+		if (!message || !callback) {
+			return null;
+		}
+		return {
+			message: decodeURIComponent(message),
+			callback: decodeURIComponent(callback),
+		};
+	} catch {
+		return null;
+	}
+};
+
+/**
  * Main parsing function - the single entry point for all input parsing
  *
  * @param rawInput - The raw input string from any source
@@ -459,6 +491,21 @@ export const parseInput = async (
 			return {
 				action: InputAction.PaykitConnect,
 				data: { action: InputAction.PaykitConnect, params: paykitParams },
+				source,
+				rawInput,
+			};
+		}
+	}
+
+	// 2e. Check for sign-message deeplink (sign arbitrary message with Ed25519)
+	// Format: pubkyring://sign-message?message={message}&callback={url}
+	if (urlWithoutProtocol.startsWith('sign-message?')) {
+		const queryString = urlWithoutProtocol.substring(13); // Remove "sign-message?"
+		const signParams = parseSignMessageParams(queryString);
+		if (signParams) {
+			return {
+				action: InputAction.SignMessage,
+				data: { action: InputAction.SignMessage, params: signParams },
 				source,
 				rawInput,
 			};
@@ -624,4 +671,10 @@ export const isPaykitConnectAction = (
 	data: ActionData
 ): data is { action: InputAction.PaykitConnect; params: PaykitConnectParams } => {
 	return data.action === InputAction.PaykitConnect;
+};
+
+export const isSignMessageAction = (
+	data: ActionData
+): data is { action: InputAction.SignMessage; params: SignMessageParams } => {
+	return data.action === InputAction.SignMessage;
 };
