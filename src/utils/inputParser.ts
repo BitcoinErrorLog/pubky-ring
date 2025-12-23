@@ -89,6 +89,7 @@ export interface PaykitConnectParams {
 	deviceId: string;
 	callback: string;
 	includeEpoch1?: boolean; // Include epoch 1 keypair for rotation, defaults to true
+	ephemeralPk?: string; // Optional: Bitkit's ephemeral X25519 public key for secure handoff
 }
 
 // Union type for all action data
@@ -293,10 +294,11 @@ const parseGetFollowsParams = (queryString: string): GetFollowsParams | null => 
 
 /**
  * Parses paykit-connect deeplink parameters
- * Format: paykit-connect?deviceId={device_id}&callback={callback_url}&includeEpoch1={bool}
- * Example: pubkyring://paykit-connect?deviceId=abc123&callback=bitkit://paykit-setup
+ * Format: paykit-connect?deviceId={device_id}&callback={callback_url}&includeEpoch1={bool}&ephemeralPk={pk}
+ * Example: pubkyring://paykit-connect?deviceId=abc123&callback=bitkit://paykit-setup&ephemeralPk=aabbcc...
  *
- * Returns session + noise keys in a single callback for complete Paykit setup.
+ * If ephemeralPk is provided, uses secure handoff (stores payload on homeserver).
+ * Otherwise, returns session + noise keys directly in callback (legacy mode).
  */
 const parsePaykitConnectParams = (queryString: string): PaykitConnectParams | null => {
 	try {
@@ -308,10 +310,12 @@ const parsePaykitConnectParams = (queryString: string): PaykitConnectParams | nu
 		}
 		const includeEpoch1Str = params.get('includeEpoch1');
 		const includeEpoch1 = includeEpoch1Str === 'false' ? false : true; // Default to true
+		const ephemeralPk = params.get('ephemeralPk') || undefined;
 		return {
 			deviceId,
 			callback: decodeURIComponent(callback),
 			includeEpoch1,
+			ephemeralPk,
 		};
 	} catch {
 		return null;
