@@ -12,8 +12,8 @@ import PubkyNoise from '../PubkyNoiseModule';
 import { getStoredIdentity } from '../identity';
 import { ActionContext, ActionResult } from '../inputRouter';
 import { InputAction, SignMessageParams } from '../inputParser';
-import { ok, err } from 'neverthrow';
-import { showToast } from '../toast';
+import { ok, err } from '@synonymdev/result';
+import { showToast } from '../helpers';
 import { i18n } from '../../i18n';
 
 /**
