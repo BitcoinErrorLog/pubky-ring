@@ -39,15 +39,16 @@ class PubkyNoiseModule: NSObject {
                 return
             }
             
-            // Note: deriveDeviceKey now throws in pubky-noise 1.1.0+
+            // Note: deriveDeviceKey and publicKeyFromSecret now throw in pubky-noise 1.1.0+
             let secretKey: Data
+            let publicKey: Data
             do {
                 secretKey = try deriveDeviceKey(seed: seed, deviceId: deviceId, epoch: epoch)
+                publicKey = try publicKeyFromSecret(secret: secretKey)
             } catch {
                 reject("KEY_DERIVATION_FAILED", "Failed to derive device key: \(error)", error)
                 return
             }
-            let publicKey = publicKeyFromSecret(secret: secretKey)
             
             let result: [String: Any] = [
                 "secretKey": secretKey.hexString,
@@ -71,8 +72,12 @@ class PubkyNoiseModule: NSObject {
                 return
             }
             
-            let publicKey = publicKeyFromSecret(secret: secretKey)
-            resolve(publicKey.hexString)
+            do {
+                let publicKey = try publicKeyFromSecret(secret: secretKey)
+                resolve(publicKey.hexString)
+            } catch {
+                reject("PUBLIC_KEY_ERROR", "Failed to derive public key: \(error)", error)
+            }
         }
     }
     
@@ -188,6 +193,11 @@ class PubkyNoiseModule: NSObject {
                     return
                 }
                 
+                if let hint = hint, hint.count > 256 {
+                    reject("HINT_TOO_LONG", "Hint must be <= 256 characters", nil)
+                    return
+                }
+                
                 let result = try manager.initiateConnection(serverPk: serverPk, hint: hint)
                 
                 resolve([
@@ -280,6 +290,11 @@ class PubkyNoiseModule: NSObject {
                 
                 guard let serverPk = Data(hexString: serverPkHex) else {
                     reject("INVALID_SERVER_PK", "Server public key must be valid hex string", nil)
+                    return
+                }
+                
+                if let hint = hint, hint.count > 256 {
+                    reject("HINT_TOO_LONG", "Hint must be <= 256 characters", nil)
                     return
                 }
                 

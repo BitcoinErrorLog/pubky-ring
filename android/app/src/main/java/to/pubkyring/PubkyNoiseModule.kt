@@ -5,15 +5,15 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
-import com.pubky.noise.FfiConnectionStatus
-import com.pubky.noise.FfiMobileConfig
-import com.pubky.noise.FfiNoiseManager
-import com.pubky.noise.FfiSessionState
-import com.pubky.noise.batterySaverConfig
-import com.pubky.noise.defaultConfig
-import com.pubky.noise.deriveDeviceKey
-import com.pubky.noise.performanceConfig
-import com.pubky.noise.publicKeyFromSecret
+import uniffi.pubky_noise.FfiConnectionStatus
+import uniffi.pubky_noise.FfiMobileConfig
+import uniffi.pubky_noise.FfiNoiseManager
+import uniffi.pubky_noise.FfiSessionState
+import uniffi.pubky_noise.batterySaverConfig
+import uniffi.pubky_noise.defaultConfig
+import uniffi.pubky_noise.deriveDeviceKey
+import uniffi.pubky_noise.performanceConfig
+import uniffi.pubky_noise.publicKeyFromSecret
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -156,6 +156,11 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
                 val serverPk = hexStringToByteArray(serverPkHex)
                 if (serverPk.isEmpty()) {
                     promise.reject("INVALID_SERVER_PK", "Server public key must be valid hex string")
+                    return@launch
+                }
+
+                if (hint != null && hint.length > 256) {
+                    promise.reject("HINT_TOO_LONG", "Hint must be <= 256 characters")
                     return@launch
                 }
 
