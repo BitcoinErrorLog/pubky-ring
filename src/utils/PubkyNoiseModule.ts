@@ -57,6 +57,11 @@ export interface SessionStateResult {
 	status: 'connected' | 'reconnecting' | 'disconnected' | 'error';
 }
 
+export interface X25519KeypairResult {
+	secretKey: string;
+	publicKey: string;
+}
+
 export type NoiseConfigType = 'default' | 'batterySaver' | 'performance';
 export type ConnectionStatus = 'connected' | 'reconnecting' | 'disconnected' | 'error';
 
@@ -389,6 +394,88 @@ export const restoreSessionState = async (
 };
 
 // ============================================================================
+// Sealed Blob v1 Functions
+// ============================================================================
+
+/**
+ * Generate a new X25519 keypair for sealed blob encryption
+ *
+ * @returns Promise resolving to keypair with secretKey and publicKey as hex strings
+ */
+export const x25519GenerateKeypair = async (): Promise<X25519KeypairResult> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.x25519GenerateKeypair();
+};
+
+/**
+ * Derive X25519 public key from a secret key
+ *
+ * @param secretKeyHex - 32-byte secret key as hex string
+ * @returns Promise resolving to public key as hex string
+ */
+export const x25519PublicFromSecret = async (secretKeyHex: string): Promise<string> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.x25519PublicFromSecret(secretKeyHex);
+};
+
+/**
+ * Encrypt plaintext using Paykit Sealed Blob v1 format
+ *
+ * @param recipientPkHex - Recipient's X25519 public key as hex string (32 bytes)
+ * @param plaintextHex - Plaintext to encrypt as hex string
+ * @param aad - Associated authenticated data (e.g., "handoff:pubkey:/path")
+ * @param purpose - Optional purpose hint ("handoff", "request", "proposal")
+ * @returns Promise resolving to JSON-encoded sealed blob envelope
+ */
+export const sealedBlobEncrypt = async (
+	recipientPkHex: string,
+	plaintextHex: string,
+	aad: string,
+	purpose?: string | null
+): Promise<string> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.sealedBlobEncrypt(recipientPkHex, plaintextHex, aad, purpose);
+};
+
+/**
+ * Decrypt a Paykit Sealed Blob v1 envelope
+ *
+ * @param recipientSkHex - Recipient's X25519 secret key as hex string (32 bytes)
+ * @param envelopeJson - JSON-encoded sealed blob envelope
+ * @param aad - Associated authenticated data (must match encryption)
+ * @returns Promise resolving to decrypted plaintext as hex string
+ */
+export const sealedBlobDecrypt = async (
+	recipientSkHex: string,
+	envelopeJson: string,
+	aad: string
+): Promise<string> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.sealedBlobDecrypt(recipientSkHex, envelopeJson, aad);
+};
+
+/**
+ * Check if a JSON string looks like a sealed blob envelope
+ *
+ * @param json - JSON string to check
+ * @returns Promise resolving to boolean indicating if it's a sealed blob
+ */
+export const isSealedBlob = async (json: string): Promise<boolean> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.isSealedBlob(json);
+};
+
+// ============================================================================
 // Default Export
 // ============================================================================
 
@@ -398,6 +485,12 @@ export default {
 	// Key Derivation
 	deriveX25519ForDeviceEpoch,
 	getPublicKey,
+	// Sealed Blob v1
+	x25519GenerateKeypair,
+	x25519PublicFromSecret,
+	sealedBlobEncrypt,
+	sealedBlobDecrypt,
+	isSealedBlob,
 	// Manager Lifecycle
 	createClientManager,
 	createServerManager,

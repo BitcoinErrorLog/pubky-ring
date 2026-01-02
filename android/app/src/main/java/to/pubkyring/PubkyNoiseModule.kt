@@ -12,8 +12,13 @@ import uniffi.pubky_noise.FfiSessionState
 import uniffi.pubky_noise.batterySaverConfig
 import uniffi.pubky_noise.defaultConfig
 import uniffi.pubky_noise.deriveDeviceKey
+import uniffi.pubky_noise.isSealedBlob
 import uniffi.pubky_noise.performanceConfig
 import uniffi.pubky_noise.publicKeyFromSecret
+import uniffi.pubky_noise.sealedBlobDecrypt
+import uniffi.pubky_noise.sealedBlobEncrypt
+import uniffi.pubky_noise.x25519GenerateKeypair
+import uniffi.pubky_noise.x25519PublicFromSecret
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -90,6 +95,115 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
             } catch (e: Exception) {
                 promise.reject("DERIVATION_ERROR", "Failed to get public key: ${e.message}", e)
             }
+        }
+    }
+
+    // MARK: - Sealed Blob v1
+
+    /**
+     * Generate a new X25519 keypair for sealed blob encryption
+     */
+    @ReactMethod
+    fun x25519GenerateKeypair(promise: Promise) {
+        scope.launch {
+            try {
+                val keypair = x25519GenerateKeypair()
+                val result = Arguments.createMap().apply {
+                    putString("secretKey", byteArrayToHexString(keypair.secretKey))
+                    putString("publicKey", byteArrayToHexString(keypair.publicKey))
+                }
+                promise.resolve(result)
+            } catch (e: Exception) {
+                promise.reject("KEYGEN_ERROR", "Failed to generate keypair: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Derive X25519 public key from secret key
+     */
+    @ReactMethod
+    fun x25519PublicFromSecret(secretKeyHex: String, promise: Promise) {
+        scope.launch {
+            try {
+                val secretKey = hexStringToByteArray(secretKeyHex)
+                if (secretKey.size != 32) {
+                    promise.reject("INVALID_SECRET_KEY", "Secret key must be 32 bytes")
+                    return@launch
+                }
+
+                val publicKey = x25519PublicFromSecret(secretKey)
+                promise.resolve(byteArrayToHexString(publicKey))
+            } catch (e: Exception) {
+                promise.reject("KEY_ERROR", "Failed to derive public key: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Encrypt plaintext using Paykit Sealed Blob v1 format
+     */
+    @ReactMethod
+    fun sealedBlobEncrypt(
+        recipientPkHex: String,
+        plaintextHex: String,
+        aad: String,
+        purpose: String?,
+        promise: Promise,
+    ) {
+        scope.launch {
+            try {
+                val recipientPk = hexStringToByteArray(recipientPkHex)
+                if (recipientPk.size != 32) {
+                    promise.reject("INVALID_RECIPIENT_PK", "Recipient public key must be 32 bytes")
+                    return@launch
+                }
+
+                val plaintext = hexStringToByteArray(plaintextHex)
+                val envelope = sealedBlobEncrypt(recipientPk, plaintext, aad, purpose)
+                promise.resolve(envelope)
+            } catch (e: Exception) {
+                promise.reject("ENCRYPT_ERROR", "Failed to encrypt sealed blob: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Decrypt a Paykit Sealed Blob v1 envelope
+     */
+    @ReactMethod
+    fun sealedBlobDecrypt(
+        recipientSkHex: String,
+        envelopeJson: String,
+        aad: String,
+        promise: Promise,
+    ) {
+        scope.launch {
+            try {
+                val recipientSk = hexStringToByteArray(recipientSkHex)
+                if (recipientSk.size != 32) {
+                    promise.reject("INVALID_SECRET_KEY", "Recipient secret key must be 32 bytes")
+                    return@launch
+                }
+
+                val plaintext = sealedBlobDecrypt(recipientSk, envelopeJson, aad)
+                promise.resolve(byteArrayToHexString(plaintext))
+            } catch (e: Exception) {
+                promise.reject("DECRYPT_ERROR", "Failed to decrypt sealed blob: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Check if a JSON string looks like a sealed blob envelope
+     */
+    @ReactMethod
+    fun isSealedBlob(json: String, promise: Promise) {
+        try {
+            val result = isSealedBlob(json)
+            promise.resolve(result)
+        } catch (e: Exception) {
+            promise.reject("CHECK_ERROR", "Failed to check sealed blob: ${e.message}", e)
         }
     }
 

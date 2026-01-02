@@ -1,23 +1,23 @@
 /**
  * Session Action Handler
  *
- * Handles session requests from external apps (e.g., Bitkit).
- * Signs in to the homeserver and returns session data via callback deeplink.
+ * @deprecated This action is DEPRECATED and DISABLED for security reasons.
  *
- * Flow:
- * 1. External app sends: pubkyring://session?callback=bitkit://session-data
- * 2. Ring prompts user to select a pubky (handled by useInputHandler)
- * 3. Ring signs in to homeserver
- * 4. Ring opens callback URL with session data: bitkit://session-data?pubky=...&session_secret=...
+ * SECURITY ISSUE: This action previously returned session_secret in callback URLs,
+ * which exposes secrets in system logs, URL history, and to any URL handler.
+ *
+ * MIGRATION: Use `pubkyring://paykit-connect` instead, which:
+ * 1. Requires an ephemeralPk parameter for encryption
+ * 2. Stores encrypted session data on homeserver
+ * 3. Returns only a reference for secure handoff
+ *
+ * This handler now returns an error directing users to the secure flow.
  */
 
-import { Result, ok, err } from '@synonymdev/result';
-import { Linking } from 'react-native';
+import { Result, err } from '@synonymdev/result';
 import { InputAction, SessionParams } from '../inputParser';
 import { ActionContext } from '../inputRouter';
-import { signInToHomeserver } from '../pubky';
 import { showToast } from '../helpers';
-import { getErrorMessage } from '../errorHandler';
 import i18n from '../../i18n';
 
 type SessionActionData = {
@@ -26,110 +26,26 @@ type SessionActionData = {
 };
 
 /**
- * Handles session action - signs in and returns session data to callback
+ * DEPRECATED: Handles session action
+ *
+ * This action is disabled for security reasons. Use paykit-connect instead.
  */
 export const handleSessionAction = async (
-	data: SessionActionData,
-	context: ActionContext
+	_data: SessionActionData,
+	_context: ActionContext,
 ): Promise<Result<string>> => {
-	const { pubky, dispatch } = context;
-	const { callback } = data.params;
+	console.warn(
+		'[SessionAction] DEPRECATED: session action is disabled. Use paykit-connect instead.',
+	);
 
-	// Session requires a pubky
-	if (!pubky) {
-		showToast({
-			type: 'error',
-			title: i18n.t('pubky.noSelection'),
-			description: i18n.t('pubky.selectToProcess'),
-		});
-		return err('No pubky provided for session');
-	}
+	showToast({
+		type: 'error',
+		title: i18n.t('session.deprecated'),
+		description: i18n.t('session.usePaykitConnect'),
+	});
 
-	// Validate callback URL
-	if (!callback?.includes('://')) {
-		showToast({
-			type: 'error',
-			title: i18n.t('common.error'),
-			description: i18n.t('session.invalidCallback'),
-		});
-		return err('Invalid callback URL');
-	}
-
-	try {
-		// Sign in to homeserver
-		const signInResult = await signInToHomeserver({
-			pubky,
-			dispatch,
-		});
-
-		if (signInResult.isErr()) {
-			const errorMessage = getErrorMessage(signInResult.error, i18n.t('errors.signInFailed'));
-			showToast({
-				type: 'error',
-				title: i18n.t('session.signInFailed'),
-				description: errorMessage,
-			});
-			return err(errorMessage);
-		}
-
-		const sessionInfo = signInResult.value;
-
-		// Build callback URL with session data
-		const callbackUrl = buildCallbackUrl(callback, {
-			pubky: sessionInfo.pubky,
-			session_secret: sessionInfo.session_secret,
-			capabilities: sessionInfo.capabilities.join(','),
-		});
-
-		// Open the callback URL to return data to external app
-		const canOpen = await Linking.canOpenURL(callbackUrl);
-		if (!canOpen) {
-			showToast({
-				type: 'error',
-				title: i18n.t('common.error'),
-				description: i18n.t('session.cannotOpenCallback'),
-			});
-			return err('Cannot open callback URL');
-		}
-
-		await Linking.openURL(callbackUrl);
-
-		showToast({
-			type: 'success',
-			title: i18n.t('session.success'),
-			description: i18n.t('session.sessionReturned'),
-		});
-
-		return ok(pubky);
-	} catch (error) {
-		const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-		console.error('[SessionAction] Error:', errorMessage);
-		showToast({
-			type: 'error',
-			title: i18n.t('common.error'),
-			description: errorMessage,
-		});
-		return err(errorMessage);
-	}
-};
-
-/**
- * Builds the callback URL with session data as query parameters
- */
-const buildCallbackUrl = (
-	baseCallback: string,
-	params: {
-		pubky: string;
-		session_secret: string;
-		capabilities: string;
-	}
-): string => {
-	const separator = baseCallback.includes('?') ? '&' : '?';
-	const queryParams = new URLSearchParams({
-		pubky: params.pubky,
-		session_secret: params.session_secret,
-		capabilities: params.capabilities,
-	}).toString();
-
-	return `${baseCallback}${separator}${queryParams}`;
+	return err(
+		'Session action is deprecated for security reasons. ' +
+			'Use pubkyring://paykit-connect with ephemeralPk for secure handoff.',
+	);
 };

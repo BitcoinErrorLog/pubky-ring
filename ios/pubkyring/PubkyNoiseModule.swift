@@ -81,6 +81,120 @@ class PubkyNoiseModule: NSObject {
         }
     }
     
+    // MARK: - Sealed Blob v1
+    
+    /// Generate a new X25519 keypair for sealed blob encryption
+    @objc(x25519GenerateKeypair:rejecter:)
+    func x25519GenerateKeypair(
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let keypair = x25519GenerateKeypair()
+            let result: [String: Any] = [
+                "secretKey": keypair.secretKey.hexString,
+                "publicKey": keypair.publicKey.hexString
+            ]
+            resolve(result)
+        }
+    }
+    
+    /// Derive X25519 public key from secret key
+    @objc(x25519PublicFromSecret:resolver:rejecter:)
+    func x25519PublicFromSecret(
+        _ secretKeyHex: String,
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let secretKey = Data(hexString: secretKeyHex), secretKey.count == 32 else {
+                reject("INVALID_SECRET_KEY", "Secret key must be 32 bytes hex string", nil)
+                return
+            }
+            
+            do {
+                let publicKey = try x25519PublicFromSecret(secret: secretKey)
+                resolve(publicKey.hexString)
+            } catch {
+                reject("KEY_ERROR", "Failed to derive public key: \(error)", error)
+            }
+        }
+    }
+    
+    /// Encrypt plaintext using Paykit Sealed Blob v1 format
+    @objc(sealedBlobEncrypt:plaintextHex:aad:purpose:resolver:rejecter:)
+    func sealedBlobEncrypt(
+        _ recipientPkHex: String,
+        plaintextHex: String,
+        aad: String,
+        purpose: String?,
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let recipientPk = Data(hexString: recipientPkHex), recipientPk.count == 32 else {
+                reject("INVALID_RECIPIENT_PK", "Recipient public key must be 32 bytes hex string", nil)
+                return
+            }
+            
+            guard let plaintext = Data(hexString: plaintextHex) else {
+                reject("INVALID_PLAINTEXT", "Plaintext must be valid hex string", nil)
+                return
+            }
+            
+            do {
+                let envelope = try sealedBlobEncrypt(
+                    recipientPk: recipientPk,
+                    plaintext: plaintext,
+                    aad: aad,
+                    purpose: purpose
+                )
+                resolve(envelope)
+            } catch {
+                reject("ENCRYPT_ERROR", "Failed to encrypt sealed blob: \(error)", error)
+            }
+        }
+    }
+    
+    /// Decrypt a Paykit Sealed Blob v1 envelope
+    @objc(sealedBlobDecrypt:envelopeJson:aad:resolver:rejecter:)
+    func sealedBlobDecrypt(
+        _ recipientSkHex: String,
+        envelopeJson: String,
+        aad: String,
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let recipientSk = Data(hexString: recipientSkHex), recipientSk.count == 32 else {
+                reject("INVALID_SECRET_KEY", "Recipient secret key must be 32 bytes hex string", nil)
+                return
+            }
+            
+            do {
+                let plaintext = try sealedBlobDecrypt(
+                    recipientSk: recipientSk,
+                    envelopeJson: envelopeJson,
+                    aad: aad
+                )
+                resolve(plaintext.hexString)
+            } catch {
+                reject("DECRYPT_ERROR", "Failed to decrypt sealed blob: \(error)", error)
+            }
+        }
+    }
+    
+    /// Check if a JSON string looks like a sealed blob envelope
+    @objc(isSealedBlob:resolver:rejecter:)
+    func isSealedBlob(
+        _ json: String,
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let result = isSealedBlob(json: json)
+        resolve(result)
+    }
+    
     // MARK: - Noise Manager Lifecycle
     
     /// Create a client noise manager

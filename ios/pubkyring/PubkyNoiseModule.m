@@ -20,6 +20,31 @@ RCT_EXTERN_METHOD(getPublicKey:(NSString *)secretKeyHex
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+// Sealed Blob v1
+RCT_EXTERN_METHOD(x25519GenerateKeypair:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(x25519PublicFromSecret:(NSString *)secretKeyHex
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(sealedBlobEncrypt:(NSString *)recipientPkHex
+                  plaintextHex:(NSString *)plaintextHex
+                  aad:(NSString *)aad
+                  purpose:(NSString *)purpose
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(sealedBlobDecrypt:(NSString *)recipientSkHex
+                  envelopeJson:(NSString *)envelopeJson
+                  aad:(NSString *)aad
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(isSealedBlob:(NSString *)json
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 // Manager Lifecycle
 RCT_EXTERN_METHOD(createClientManager:(NSString *)clientSeedHex
                   clientKid:(NSString *)clientKid

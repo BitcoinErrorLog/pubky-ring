@@ -141,7 +141,14 @@
     "sessionReturned": "Session data sent to requesting app",
     "signInFailed": "Sign In Failed",
     "invalidCallback": "Invalid callback URL provided",
-    "cannotOpenCallback": "Cannot open callback URL to return session"
+    "cannotOpenCallback": "Cannot open callback URL to return session",
+    "deprecated": "Action Deprecated",
+    "usePaykitConnect": "Use paykit-connect with ephemeralPk for secure session handoff",
+    "ephemeralPkRequired": "ephemeralPk parameter is required for secure handoff"
+  },
+  "keypair": {
+    "deprecated": "Action Deprecated",
+    "usePaykitConnect": "Use paykit-connect for secure key provisioning. Future epochs can be derived locally using noise_seed."
   },
   "errors": {
     "failedToParseQR": "Failed to parse QR code data",
