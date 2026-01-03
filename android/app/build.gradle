@@ -21,7 +21,13 @@ react {
     //   The list of variants to that are debuggable. For those we're going to
     //   skip the bundling of the JS bundle and the assets. By default is just 'debug'.
     //   If you add flavors like lite, prod, etc. you'll have to list your debuggableVariants.
-    // debuggableVariants = ["liteDebug", "prodDebug"]
+    //
+    // E2E MODE: When BUNDLE_DEBUG=true, bundle JS into debug APK for deterministic E2E testing.
+    // This avoids Metro connectivity issues on emulators.
+    // Usage: BUNDLE_DEBUG=true ./gradlew assembleDebug
+    if (System.getenv("BUNDLE_DEBUG") == "true") {
+        debuggableVariants = []  // Empty list = bundle JS for ALL variants
+    }
 
     /* Bundling */
     //   A list containing the node command and its flags. Default is just 'node'.

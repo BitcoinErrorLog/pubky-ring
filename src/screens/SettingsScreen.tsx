@@ -26,7 +26,7 @@ import { wipeKeychain } from '../utils/keychain.ts';
 import { resetPubkys } from '../store/slices/pubkysSlice.ts';
 import { useTranslation } from 'react-i18next';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'EditPubky'>;
+type Props = NativeStackScreenProps<RootStackParamList, 'Settings'>;
 
 const SettingsScreen = ({ navigation }: Props): ReactElement => {
 	const { t } = useTranslation();

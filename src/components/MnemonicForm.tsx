@@ -14,6 +14,7 @@ import {
 	Keyboard,
 	KeyboardAvoidingView,
 	Platform,
+	TextInput as RNTextInput,
 } from 'react-native';
 import * as bip39 from 'bip39';
 import {
@@ -41,7 +42,7 @@ const MnemonicForm = ({ onBack, onCancel, onImport }: MnemonicFormProps): ReactE
 	const [validWords, setValidWords] = useState<boolean[]>(Array(12).fill(true));
 	const [focused, setFocused] = useState<number | null>(null);
 	const [loading, setLoading] = useState<boolean>(false);
-	const inputRefs = useRef<(typeof TextInput)[]>(Array(12).fill(null));
+	const inputRefs = useRef<(RNTextInput | null)[]>(Array(12).fill(null));
 
 	// Auto-focus first input when component mounts
 	useEffect(() => {
@@ -224,7 +225,7 @@ const MnemonicForm = ({ onBack, onCancel, onImport }: MnemonicFormProps): ReactE
 							{Array.from({ length: 6 }, (_, index) => {
 								const isInvalid = mnemonicWords[index] && !validWords[index];
 								return (
-									<TextInput
+									<RNTextInput
 										key={index}
 										ref={(ref) => { inputRefs.current[index] = ref; }}
 										style={[
@@ -255,7 +256,7 @@ const MnemonicForm = ({ onBack, onCancel, onImport }: MnemonicFormProps): ReactE
 								const actualIndex = index + 6;
 								const isInvalid = mnemonicWords[actualIndex] && !validWords[actualIndex];
 								return (
-									<TextInput
+									<RNTextInput
 										key={actualIndex}
 										ref={(ref) => { inputRefs.current[actualIndex] = ref; }}
 										style={[

@@ -23,9 +23,7 @@ export enum InputAction {
 	Import = 'import',
 	Signup = 'signup',
 	Invite = 'invite',
-	Session = 'session',
 	HomeserverSignIn = 'homeserver_signin',
-	DeriveKeypair = 'derive_keypair',
 	GetProfile = 'get_profile',
 	GetFollows = 'get_follows',
 	PaykitConnect = 'paykit_connect', // Combined session + noise keys for Paykit
@@ -58,18 +56,6 @@ export interface ImportParams {
 // Invite parameters
 export interface InviteParams {
 	inviteCode: string;
-}
-
-// Session parameters for external app session requests
-export interface SessionParams {
-	callback: string;
-}
-
-// Keypair derivation parameters for Paykit/Bitkit noise keys
-export interface DeriveKeypairParams {
-	deviceId: string;
-	epoch: number;
-	callback: string;
 }
 
 // Profile request parameters
@@ -105,9 +91,7 @@ export type ActionData =
 	| { action: InputAction.Import; params: ImportParams }
 	| { action: InputAction.Signup; params: SignupParams }
 	| { action: InputAction.Invite; params: InviteParams }
-	| { action: InputAction.Session; params: SessionParams }
 	| { action: InputAction.HomeserverSignIn; params: { url: string } }
-	| { action: InputAction.DeriveKeypair; params: DeriveKeypairParams }
 	| { action: InputAction.GetProfile; params: GetProfileParams }
 	| { action: InputAction.GetFollows; params: GetFollowsParams }
 	| { action: InputAction.PaykitConnect; params: PaykitConnectParams }
@@ -202,54 +186,6 @@ const parseSignupParams = (queryString: string): SignupParams | null => {
 			relay: decodeURIComponent(params.get('relay') || ''),
 			secret: params.get('secret') || '',
 			caps: (params.get('caps') || '').split(',').filter(Boolean),
-		};
-	} catch {
-		return null;
-	}
-};
-
-/**
- * Parses session deeplink parameters
- * Format: session?callback={callback_url}
- * Example: pubkyring://session?callback=bitkit://session-data
- */
-const parseSessionParams = (queryString: string): SessionParams | null => {
-	try {
-		const params = new URLSearchParams(queryString);
-		const callback = params.get('callback');
-		if (!callback) {
-			return null;
-		}
-		return {
-			callback: decodeURIComponent(callback),
-		};
-	} catch {
-		return null;
-	}
-};
-
-/**
- * Parses derive-keypair deeplink parameters
- * Format: derive-keypair?deviceId={device_id}&epoch={epoch}&callback={callback_url}
- * Example: pubkyring://derive-keypair?deviceId=abc123&epoch=0&callback=bitkit://paykit-keypair
- */
-const parseDeriveKeypairParams = (queryString: string): DeriveKeypairParams | null => {
-	try {
-		const params = new URLSearchParams(queryString);
-		const deviceId = params.get('deviceId');
-		const epochStr = params.get('epoch');
-		const callback = params.get('callback');
-		if (!deviceId || !epochStr || !callback) {
-			return null;
-		}
-		const epoch = parseInt(epochStr, 10);
-		if (isNaN(epoch)) {
-			return null;
-		}
-		return {
-			deviceId,
-			epoch,
-			callback: decodeURIComponent(callback),
 		};
 	} catch {
 		return null;
@@ -422,37 +358,7 @@ export const parseInput = async (
 		}
 	}
 
-	// 2. Check for session deeplink
-	// Format: pubkyring://session?callback={callback_url}
-	if (urlWithoutProtocol.startsWith('session?')) {
-		const queryString = urlWithoutProtocol.substring(8); // Remove "session?"
-		const sessionParams = parseSessionParams(queryString);
-		if (sessionParams?.callback) {
-			return {
-				action: InputAction.Session,
-				data: { action: InputAction.Session, params: sessionParams },
-				source,
-				rawInput,
-			};
-		}
-	}
-
-	// 2a. Check for derive-keypair deeplink (Paykit noise key derivation)
-	// Format: pubkyring://derive-keypair?deviceId={id}&epoch={epoch}&callback={url}
-	if (urlWithoutProtocol.startsWith('derive-keypair?')) {
-		const queryString = urlWithoutProtocol.substring(15); // Remove "derive-keypair?"
-		const keypairParams = parseDeriveKeypairParams(queryString);
-		if (keypairParams) {
-			return {
-				action: InputAction.DeriveKeypair,
-				data: { action: InputAction.DeriveKeypair, params: keypairParams },
-				source,
-				rawInput,
-			};
-		}
-	}
-
-	// 2b. Check for get-profile deeplink
+	// 2. Check for get-profile deeplink
 	// Format: pubkyring://get-profile?pubkey={pubkey}&callback={url}
 	if (urlWithoutProtocol.startsWith('get-profile?')) {
 		const queryString = urlWithoutProtocol.substring(12); // Remove "get-profile?"
@@ -637,22 +543,10 @@ export const isInviteAction = (
 	return data.action === InputAction.Invite;
 };
 
-export const isSessionAction = (
-	data: ActionData
-): data is { action: InputAction.Session; params: SessionParams } => {
-	return data.action === InputAction.Session;
-};
-
 export const isUnknownAction = (
 	data: ActionData
 ): data is { action: InputAction.Unknown; params: { rawData: string } } => {
 	return data.action === InputAction.Unknown;
-};
-
-export const isDeriveKeypairAction = (
-	data: ActionData
-): data is { action: InputAction.DeriveKeypair; params: DeriveKeypairParams } => {
-	return data.action === InputAction.DeriveKeypair;
 };
 
 export const isGetProfileAction = (

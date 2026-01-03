@@ -195,6 +195,63 @@ class PubkyNoiseModule: NSObject {
         resolve(result)
     }
     
+    /// Derive noise seed from Ed25519 secret key using HKDF-SHA256
+    @objc(deriveNoiseSeed:deviceIdHex:resolver:rejecter:)
+    func deriveNoiseSeed(
+        _ ed25519SecretHex: String,
+        deviceIdHex: String,
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let seedHex = try deriveNoiseSeed(ed25519SecretHex: ed25519SecretHex, deviceIdHex: deviceIdHex)
+                resolve(seedHex)
+            } catch {
+                reject("DERIVATION_ERROR", "Failed to derive noise seed: \(error)", error)
+            }
+        }
+    }
+    
+    // MARK: - Ed25519 Signing
+    
+    /// Sign a message with Ed25519 secret key
+    @objc(ed25519Sign:messageHex:resolver:rejecter:)
+    func ed25519Sign(
+        _ ed25519SecretHex: String,
+        messageHex: String,
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let signature = try ed25519Sign(ed25519SecretHex: ed25519SecretHex, messageHex: messageHex)
+                resolve(signature)
+            } catch {
+                reject("SIGNING_ERROR", "Failed to sign message: \(error)", error)
+            }
+        }
+    }
+    
+    /// Verify an Ed25519 signature
+    @objc(ed25519Verify:messageHex:signatureHex:resolver:rejecter:)
+    func ed25519Verify(
+        _ ed25519PublicHex: String,
+        messageHex: String,
+        signatureHex: String,
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let isValid = try ed25519Verify(ed25519PublicHex: ed25519PublicHex, messageHex: messageHex, signatureHex: signatureHex)
+                resolve(isValid)
+            } catch {
+                reject("VERIFY_ERROR", "Failed to verify signature: \(error)", error)
+            }
+        }
+    }
+    
     // MARK: - Noise Manager Lifecycle
     
     /// Create a client noise manager

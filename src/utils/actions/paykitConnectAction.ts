@@ -33,6 +33,7 @@ import { getErrorMessage } from '../errorHandler';
 import i18n from '../../i18n';
 import {
 	deriveX25519ForDeviceEpoch as nativeDeriveX25519,
+	deriveNoiseSeed as nativeDeriveNoiseSeed,
 	isNativeModuleAvailable,
 	sealedBlobEncrypt,
 } from '../PubkyNoiseModule';
@@ -44,18 +45,17 @@ type PaykitConnectActionData = {
 
 /**
  * Generate a cryptographically random request ID (256 bits as hex)
+ * SECURITY: Uses crypto.getRandomValues only. Throws if unavailable.
  */
 const generateRequestId = (): string => {
-	const array = new Uint8Array(32);
-	// Use crypto.getRandomValues for secure random generation
-	if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-		crypto.getRandomValues(array);
-	} else {
-		// Fallback for environments without crypto API
-		for (let i = 0; i < array.length; i++) {
-			array[i] = Math.floor(Math.random() * 256);
-		}
+	if (typeof crypto === 'undefined' || !crypto.getRandomValues) {
+		throw new Error(
+			'crypto.getRandomValues is not available. ' +
+			'Secure random generation is required for request IDs.'
+		);
 	}
+	const array = new Uint8Array(32);
+	crypto.getRandomValues(array);
 	return Array.from(array)
 		.map(b => b.toString(16).padStart(2, '0'))
 		.join('');
@@ -122,31 +122,28 @@ interface HandoffPayload {
 }
 
 /**
- * Derive noise_seed from Ed25519 secret key using HKDF.
- * This is domain-separated and cannot be used for signing.
+ * Derive noise_seed from Ed25519 secret key using HKDF via native module.
+ *
+ * Uses HKDF-SHA256 with domain separation:
+ * - salt: "paykit-noise-seed-v1"
+ * - ikm: Ed25519 secret key
+ * - info: device_id
+ *
+ * This produces a 32-byte seed for local epoch key derivation.
+ * The seed is domain-separated and cannot be used for signing.
  */
-const deriveNoiseSeed = (ed25519SecretHex: string, deviceId: string): string => {
-	// Use HKDF with domain separation to derive noise_seed
-	// salt = "paykit-noise-seed-v1"
-	// ikm = ed25519_secret
-	// info = device_id
-	// This produces a 32-byte seed that can be used to derive future epoch keys
-	// For now, we use a simple approach: hash(ed25519_secret || "paykit-noise-seed-v1" || device_id)
-	// In production, this should use proper HKDF from the native module
-	const encoder = new TextEncoder();
-	const data = encoder.encode(ed25519SecretHex + 'paykit-noise-seed-v1' + deviceId);
-	const hashArray = new Uint8Array(32);
-	// Simple hash-like derivation (replace with proper HKDF in production)
-	for (let i = 0; i < data.length; i++) {
-		hashArray[i % 32] ^= data[i];
+const deriveNoiseSeed = async (
+	ed25519SecretHex: string,
+	deviceId: string
+): Promise<string> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error(
+			'PubkyNoiseModule native module is not available. ' +
+			'Ensure the native libraries are properly linked.'
+		);
 	}
-	// Clamp for X25519 compatibility
-	hashArray[0] &= 248;
-	hashArray[31] &= 127;
-	hashArray[31] |= 64;
-	return Array.from(hashArray)
-		.map(b => b.toString(16).padStart(2, '0'))
-		.join('');
+	const deviceIdHex = isHexString(deviceId) ? deviceId : stringToHex(deviceId);
+	return nativeDeriveNoiseSeed(ed25519SecretHex, deviceIdHex);
 };
 
 /**
@@ -223,12 +220,13 @@ export const handlePaykitConnectAction = async (
 		// Step 2: Get Ed25519 secret key for noise key derivation
 		const secretKeyResult = await getPubkySecretKey(pubky);
 		if (secretKeyResult.isErr()) {
+			const errorMessage = getErrorMessage(secretKeyResult.error, i18n.t('errors.failedToGetSecretKey'));
 			showToast({
 				type: 'error',
 				title: i18n.t('errors.failedToGetSecretKey'),
-				description: secretKeyResult.error,
+				description: errorMessage,
 			});
-			return err(secretKeyResult.error);
+			return err(errorMessage);
 		}
 
 		const { secretKey: ed25519SecretKey } = secretKeyResult.value;
@@ -242,7 +240,7 @@ export const handlePaykitConnectAction = async (
 		}
 
 		// Step 4: Derive noise_seed for local epoch derivation
-		const noiseSeed = deriveNoiseSeed(ed25519SecretKey, deviceId);
+		const noiseSeed = await deriveNoiseSeed(ed25519SecretKey, deviceId);
 
 		// Use secure handoff with encrypted payload
 		// Payload is encrypted to Bitkit's ephemeral X25519 public key
@@ -327,12 +325,14 @@ const handleSecureHandoff = async ({
 
 	let encryptedEnvelope: string;
 	try {
+		console.log('[PaykitConnectAction] Calling sealedBlobEncrypt with ephemeralPk:', ephemeralPk.substring(0, 16) + '...');
 		encryptedEnvelope = await sealedBlobEncrypt(
 			ephemeralPk,
 			payloadHex,
 			aad,
 			'handoff',
 		);
+		console.log('[PaykitConnectAction] sealedBlobEncrypt returned:', encryptedEnvelope.substring(0, 200));
 	} catch (encryptError) {
 		const errorMessage = encryptError instanceof Error ? encryptError.message : 'Encryption failed';
 		console.error('[PaykitConnectAction] Encryption error:', errorMessage);
@@ -351,6 +351,7 @@ const handleSecureHandoff = async ({
 
 	// Parse the envelope JSON and store it
 	const envelopeObj = JSON.parse(encryptedEnvelope);
+	console.log('[PaykitConnectAction] Storing envelope with v:', envelopeObj.v, 'at path:', handoffPath);
 	const putResult = await put(handoffPath, envelopeObj, ed25519SecretKey);
 	if (putResult.isErr()) {
 		const errorMessage = getErrorMessage(putResult.error, 'Failed to store handoff payload');
@@ -360,6 +361,34 @@ const handleSecureHandoff = async ({
 			description: errorMessage,
 		});
 		return err(errorMessage);
+	}
+
+	// Publish Noise endpoint for discoverability by other Paykit clients
+	// This enables encrypted subscription proposals and payment requests
+	// The host/port are placeholders - Bitkit will update when starting its Noise server
+	// Schema must match PaykitMobile FFI NoiseEndpointData: { host, port, pubkey, metadata? }
+	const noiseEndpointPath = `pubky://${pubky}/pub/paykit.app/v0/noise`;
+	const noiseEndpoint = {
+		host: 'pending',
+		port: 0,
+		pubkey: keypair0.publicKey,
+		metadata: JSON.stringify({
+			provisioned_by: 'ring-handoff',
+			device_id: deviceId,
+			created_at: now,
+		}),
+	};
+
+	const noiseResult = await put(noiseEndpointPath, noiseEndpoint, ed25519SecretKey);
+	if (noiseResult.isErr()) {
+		// Log but don't fail - the handoff payload is already stored
+		// Bitkit can retry publishing the Noise endpoint later
+		console.warn(
+			'[PaykitConnectAction] Failed to publish Noise endpoint:',
+			getErrorMessage(noiseResult.error, 'Unknown error')
+		);
+	} else {
+		console.log('[PaykitConnectAction] Published Noise endpoint:', keypair0.publicKey.substring(0, 16) + '...');
 	}
 
 	// Build callback URL with only pubky and request_id (no secrets)

@@ -27,7 +27,7 @@ const RootNavigator = (): ReactElement => {
 	const signedTermsOfUse = useSelector(getSignedTermsOfUse);
 	const navigationAnimation = useSelector(getNavigationAnimation);
 	const theme = useTheme();
-	const initialRoute = useMemo(() => {
+	const initialRoute = useMemo((): keyof RootStackParamList => {
 		return !signedTermsOfUse ? 'TermsOfUse' : showOnboarding ? 'Onboarding' : 'Home';
 	}, [showOnboarding, signedTermsOfUse]);
 
@@ -74,22 +74,6 @@ const RootNavigator = (): ReactElement => {
 					}}
 				/>
 				<Stack.Screen
-					name="About"
-					component={About}
-					options={{
-						title: t('screenTitles.about'),
-						gestureEnabled: true,
-					}}
-				/>
-				<Stack.Screen
-					name="Settings"
-					component={SettingsScreen}
-					options={{
-						title: t('screenTitles.settings'),
-						gestureEnabled: true,
-					}}
-				/>
-				<Stack.Screen
 					name="PubkyDetail"
 					component={PubkyDetailScreen}
 					options={{
@@ -102,6 +86,22 @@ const RootNavigator = (): ReactElement => {
 					component={EditPubkyScreen}
 					options={{
 						title: t('screenTitles.editPubky'),
+						gestureEnabled: true,
+					}}
+				/>
+				<Stack.Screen
+					name="About"
+					component={About}
+					options={{
+						title: t('screenTitles.about'),
+						gestureEnabled: true,
+					}}
+				/>
+				<Stack.Screen
+					name="Settings"
+					component={SettingsScreen}
+					options={{
+						title: t('screenTitles.settings'),
 						gestureEnabled: true,
 					}}
 				/>

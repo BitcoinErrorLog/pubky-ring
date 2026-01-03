@@ -45,16 +45,20 @@ const fetchFollowsList = async (
 			return ok([]); // Return empty array if directory doesn't exist
 		}
 
-		// Parse the list result - each entry is a pubkey
-		const follows = listResult.value
-			.split('\n')
-			.filter(line => line.trim().length > 0)
-			.map(line => {
+		// Parse the list result - each entry is a path string
+		// The SDK returns an array of strings (paths)
+		const rawList = Array.isArray(listResult.value)
+			? listResult.value
+			: (listResult.value as string).split('\n');
+
+		const follows = rawList
+			.filter((line: string) => line.trim().length > 0)
+			.map((line: string) => {
 				// Extract just the pubkey from the full path
 				const parts = line.split('/');
 				return parts[parts.length - 1];
 			})
-			.filter(pubkey => pubkey.length >= 10); // Filter out empty/invalid entries
+			.filter((pubkey: string) => pubkey.length >= 10); // Filter out empty/invalid entries
 
 		return ok(follows);
 	} catch (error) {

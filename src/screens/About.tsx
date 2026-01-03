@@ -20,7 +20,7 @@ import { shareData, showToast } from '../utils/helpers.ts';
 import { copyToClipboard } from '../utils/clipboard.ts';
 import { useTranslation } from 'react-i18next';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'EditPubky'>;
+type Props = NativeStackScreenProps<RootStackParamList, 'About'>;
 
 const About = ({ navigation }: Props): ReactElement => {
 	const { t } = useTranslation();

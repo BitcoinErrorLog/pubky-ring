@@ -68,7 +68,7 @@ const InviteCode = ({ payload }: {
 	const [isValid, setIsValid] = useState(false);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState('');
-	const fadeOutTimerRef = useRef<NodeJS.Timeout | null>(null);
+	const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	// Animation values
 	const checkOpacity = useSharedValue(0);

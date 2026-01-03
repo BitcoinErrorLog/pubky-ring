@@ -119,7 +119,7 @@ const EditPubky = ({ payload }: {
 	const checkOpacity = useSharedValue(0);
 	const checkScale = useSharedValue(0.2);
 	const [error, setError] = useState('');
-	const fadeOutTimerRef = useRef<NodeJS.Timeout | null>(null);
+	const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const signupTokenInputRef = useRef<any>(null);
 
 	const gradientOpacity = useSharedValue(0);
@@ -395,7 +395,7 @@ const EditPubky = ({ payload }: {
 	}, [loading, homeServer, storedPubkyData.homeserver, storedPubkyData?.signedUp]);
 
 	const title = useMemo(() => {
-		return `${payload?.title} ${truncatePubky(pubky)}` ?? TITLE;
+		return payload?.title ? `${payload.title} ${truncatePubky(pubky)}` : TITLE;
 	}, [payload?.title, pubky]);
 
 	const onClose = useCallback(() => {

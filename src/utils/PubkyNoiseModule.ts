@@ -423,6 +423,33 @@ export const x25519PublicFromSecret = async (secretKeyHex: string): Promise<stri
 };
 
 /**
+ * Derive noise seed from Ed25519 secret key using HKDF-SHA256
+ *
+ * This is used to derive future X25519 epoch keys locally without
+ * needing to call Ring again. The seed is domain-separated and
+ * cannot be used for signing.
+ *
+ * HKDF parameters:
+ * - salt: "paykit-noise-seed-v1"
+ * - ikm: Ed25519 secret key (32 bytes)
+ * - info: device ID
+ * - output: 32 bytes
+ *
+ * @param ed25519SecretHex - Ed25519 secret key as hex string (64 chars)
+ * @param deviceIdHex - Device ID as hex string
+ * @returns Promise resolving to 32-byte noise seed as hex string (64 chars)
+ */
+export const deriveNoiseSeed = async (
+	ed25519SecretHex: string,
+	deviceIdHex: string
+): Promise<string> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.deriveNoiseSeed(ed25519SecretHex, deviceIdHex);
+};
+
+/**
  * Encrypt plaintext using Paykit Sealed Blob v1 format
  *
  * @param recipientPkHex - Recipient's X25519 public key as hex string (32 bytes)
@@ -476,6 +503,50 @@ export const isSealedBlob = async (json: string): Promise<boolean> => {
 };
 
 // ============================================================================
+// Ed25519 Signing Functions
+// ============================================================================
+
+/**
+ * Sign an arbitrary message with an Ed25519 secret key
+ *
+ * @param ed25519SecretHex - Ed25519 secret key as hex string (64 chars / 32 bytes)
+ * @param messageHex - Message to sign as hex string
+ * @returns Promise resolving to 64-byte signature as hex string (128 chars)
+ */
+export const ed25519Sign = async (
+	ed25519SecretHex: string,
+	messageHex: string
+): Promise<string> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.ed25519Sign(ed25519SecretHex, messageHex);
+};
+
+/**
+ * Verify an Ed25519 signature
+ *
+ * @param ed25519PublicHex - Ed25519 public key as hex string (64 chars / 32 bytes)
+ * @param messageHex - Original message as hex string
+ * @param signatureHex - Signature to verify as hex string (128 chars / 64 bytes)
+ * @returns Promise resolving to true if signature is valid
+ */
+export const ed25519Verify = async (
+	ed25519PublicHex: string,
+	messageHex: string,
+	signatureHex: string
+): Promise<boolean> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.ed25519Verify(
+		ed25519PublicHex,
+		messageHex,
+		signatureHex
+	);
+};
+
+// ============================================================================
 // Default Export
 // ============================================================================
 
@@ -485,12 +556,16 @@ export default {
 	// Key Derivation
 	deriveX25519ForDeviceEpoch,
 	getPublicKey,
+	deriveNoiseSeed,
 	// Sealed Blob v1
 	x25519GenerateKeypair,
 	x25519PublicFromSecret,
 	sealedBlobEncrypt,
 	sealedBlobDecrypt,
 	isSealedBlob,
+	// Ed25519 Signing
+	ed25519Sign,
+	ed25519Verify,
 	// Manager Lifecycle
 	createClientManager,
 	createServerManager,

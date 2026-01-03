@@ -15,8 +15,6 @@ import {
 	isImportAction,
 	isSignupAction,
 	isInviteAction,
-	isSessionAction,
-	isDeriveKeypairAction,
 	isGetProfileAction,
 	isGetFollowsAction,
 	isPaykitConnectAction,
@@ -27,12 +25,10 @@ import { handleAuthAction } from './actions/authAction';
 import { handleImportAction } from './actions/importAction';
 import { handleSignupAction } from './actions/signupAction';
 import { handleInviteAction } from './actions/inviteAction';
-import { handleSessionAction } from './actions/sessionAction';
-import { handleKeypairAction } from './actions/keypairAction';
 import { handleProfileAction } from './actions/profileAction';
 import { handleFollowsAction } from './actions/followsAction';
 import { handlePaykitConnectAction } from './actions/paykitConnectAction';
-import { signMessageAction } from './actions/signMessageAction';
+import { handleSignMessageAction } from './actions/signMessageAction';
 import i18n from '../i18n';
 import { getErrorMessage } from './errorHandler';
 
@@ -104,20 +100,6 @@ export const routeInput = async (
 				: err(getErrorMessage(result.error, i18n.t('errors.inviteProcessingFailed')));
 		}
 
-		if (isSessionAction(data)) {
-			const result = await handleSessionAction(data, effectiveContext);
-			return result.isOk()
-				? ok({ success: true, action: InputAction.Session, pubky: result.value, message: i18n.t('router.sessionReturned') })
-				: err(getErrorMessage(result.error, i18n.t('errors.sessionRequestFailed')));
-		}
-
-		if (isDeriveKeypairAction(data)) {
-			const result = await handleKeypairAction(data, effectiveContext);
-			return result.isOk()
-				? ok({ success: true, action: InputAction.DeriveKeypair, pubky: result.value, message: 'Keypair derived successfully' })
-				: err(getErrorMessage(result.error, 'Failed to derive keypair'));
-		}
-
 		if (isGetProfileAction(data)) {
 			const result = await handleProfileAction(data, effectiveContext);
 			return result.isOk()
@@ -140,9 +122,9 @@ export const routeInput = async (
 		}
 
 		if (isSignMessageAction(data)) {
-			const result = await signMessageAction(data, effectiveContext);
+			const result = await handleSignMessageAction(data, effectiveContext);
 			return result.isOk()
-				? ok({ success: true, action: InputAction.SignMessage, message: 'Message signed successfully' })
+				? ok({ success: true, action: InputAction.SignMessage, pubky: result.value, message: 'Message signed successfully' })
 				: err(getErrorMessage(result.error, 'Failed to sign message'));
 		}
 
@@ -165,10 +147,9 @@ export const routeInput = async (
 export const actionRequiresPubky = (action: InputAction): boolean => {
 	return [
 		InputAction.Auth,
-		InputAction.Session,
-		InputAction.DeriveKeypair,
 		InputAction.GetFollows,
 		InputAction.PaykitConnect,
+		InputAction.SignMessage,
 	].includes(action);
 };
 
@@ -180,7 +161,6 @@ export const actionRequiresNetwork = (action: InputAction): boolean => {
 		InputAction.Auth,
 		InputAction.Signup,
 		InputAction.Invite,
-		InputAction.Session,
 		InputAction.GetProfile,
 		InputAction.GetFollows,
 		InputAction.PaykitConnect,

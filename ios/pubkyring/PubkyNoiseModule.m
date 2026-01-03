@@ -45,6 +45,23 @@ RCT_EXTERN_METHOD(isSealedBlob:(NSString *)json
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(deriveNoiseSeed:(NSString *)ed25519SecretHex
+                  deviceIdHex:(NSString *)deviceIdHex
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+// Ed25519 Signing
+RCT_EXTERN_METHOD(ed25519Sign:(NSString *)ed25519SecretHex
+                  messageHex:(NSString *)messageHex
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(ed25519Verify:(NSString *)ed25519PublicHex
+                  messageHex:(NSString *)messageHex
+                  signatureHex:(NSString *)signatureHex
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 // Manager Lifecycle
 RCT_EXTERN_METHOD(createClientManager:(NSString *)clientSeedHex
                   clientKid:(NSString *)clientKid

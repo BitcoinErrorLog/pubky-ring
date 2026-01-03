@@ -91,7 +91,7 @@ const Camera = ({
 		showFrame: false,
 		onReadCode: handleCodeRead,
 		cameraType: CameraType.Back,
-		resizeMode: 'cover',
+		resizeMode: 'cover' as const,
 	}), [handleCodeRead]);
 
 	// Early return for loading state

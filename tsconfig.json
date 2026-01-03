@@ -1,7 +1,7 @@
 {
   "extends": "@react-native/typescript-config",
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["**/node_modules", "**/Pods"],
+  "exclude": ["**/node_modules", "**/Pods", "**/__tests__/**", "**/__mocks__/**"],
   "compilerOptions": {
     "types": [
       "node",
@@ -9,6 +9,6 @@
       "expect-webdriverio",
       "@wdio/mocha-framework",
       "@wdio/appium-service"
-    ],
+    ]
   }
 }

@@ -12,13 +12,14 @@ import uniffi.pubky_noise.FfiSessionState
 import uniffi.pubky_noise.batterySaverConfig
 import uniffi.pubky_noise.defaultConfig
 import uniffi.pubky_noise.deriveDeviceKey
-import uniffi.pubky_noise.isSealedBlob
 import uniffi.pubky_noise.performanceConfig
 import uniffi.pubky_noise.publicKeyFromSecret
 import uniffi.pubky_noise.sealedBlobDecrypt
 import uniffi.pubky_noise.sealedBlobEncrypt
 import uniffi.pubky_noise.x25519GenerateKeypair
 import uniffi.pubky_noise.x25519PublicFromSecret
+import uniffi.pubky_noise.ed25519Sign
+import uniffi.pubky_noise.ed25519Verify
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -200,10 +201,74 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
     @ReactMethod
     fun isSealedBlob(json: String, promise: Promise) {
         try {
-            val result = isSealedBlob(json)
+            val result = uniffi.pubky_noise.isSealedBlob(json)
             promise.resolve(result)
         } catch (e: Exception) {
             promise.reject("CHECK_ERROR", "Failed to check sealed blob: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Derive noise seed from Ed25519 secret key using HKDF-SHA256
+     *
+     * @param ed25519SecretHex Ed25519 secret key as hex string (64 chars)
+     * @param deviceIdHex Device ID as hex string
+     * @returns Promise resolving to 32-byte noise seed as hex string (64 chars)
+     */
+    @ReactMethod
+    fun deriveNoiseSeed(
+        ed25519SecretHex: String,
+        deviceIdHex: String,
+        promise: Promise,
+    ) {
+        scope.launch {
+            try {
+                val seedHex = uniffi.pubky_noise.deriveNoiseSeed(ed25519SecretHex, deviceIdHex)
+                promise.resolve(seedHex)
+            } catch (e: Exception) {
+                promise.reject("DERIVATION_ERROR", "Failed to derive noise seed: ${e.message}", e)
+            }
+        }
+    }
+
+    // MARK: - Ed25519 Signing
+
+    /**
+     * Sign a message with Ed25519 secret key
+     */
+    @ReactMethod
+    fun ed25519Sign(
+        ed25519SecretHex: String,
+        messageHex: String,
+        promise: Promise,
+    ) {
+        scope.launch {
+            try {
+                val signature = ed25519Sign(ed25519SecretHex, messageHex)
+                promise.resolve(signature)
+            } catch (e: Exception) {
+                promise.reject("SIGNING_ERROR", "Failed to sign message: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Verify an Ed25519 signature
+     */
+    @ReactMethod
+    fun ed25519Verify(
+        ed25519PublicHex: String,
+        messageHex: String,
+        signatureHex: String,
+        promise: Promise,
+    ) {
+        scope.launch {
+            try {
+                val isValid = ed25519Verify(ed25519PublicHex, messageHex, signatureHex)
+                promise.resolve(isValid)
+            } catch (e: Exception) {
+                promise.reject("VERIFY_ERROR", "Failed to verify signature: ${e.message}", e)
+            }
         }
     }
 
