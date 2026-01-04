@@ -9,6 +9,43 @@
 import Foundation
 import React
 
+// MARK: - FFI Wrappers
+// These wrap the global FFI functions to avoid name collisions with instance methods
+
+private enum NoiseFFI {
+    static func generateX25519Keypair() -> FfiX25519Keypair {
+        pubkyring.x25519GenerateKeypair()
+    }
+    
+    static func x25519PublicFromSecret(secret: Data) throws -> Data {
+        try pubkyring.x25519PublicFromSecret(secret: secret)
+    }
+    
+    static func sealedBlobEncrypt(recipientPk: Data, plaintext: Data, aad: String, purpose: String?) throws -> String {
+        try pubkyring.sealedBlobEncrypt(recipientPk: recipientPk, plaintext: plaintext, aad: aad, purpose: purpose)
+    }
+    
+    static func sealedBlobDecrypt(recipientSk: Data, envelopeJson: String, aad: String) throws -> Data {
+        try pubkyring.sealedBlobDecrypt(recipientSk: recipientSk, envelopeJson: envelopeJson, aad: aad)
+    }
+    
+    static func isSealedBlob(json: String) -> Bool {
+        pubkyring.isSealedBlob(json: json)
+    }
+    
+    static func deriveNoiseSeed(ed25519SecretHex: String, deviceIdHex: String) throws -> String {
+        try pubkyring.deriveNoiseSeed(ed25519SecretHex: ed25519SecretHex, deviceIdHex: deviceIdHex)
+    }
+    
+    static func ed25519Sign(ed25519SecretHex: String, messageHex: String) throws -> String {
+        try pubkyring.ed25519Sign(ed25519SecretHex: ed25519SecretHex, messageHex: messageHex)
+    }
+    
+    static func ed25519Verify(ed25519PublicHex: String, messageHex: String, signatureHex: String) throws -> Bool {
+        try pubkyring.ed25519Verify(ed25519PublicHex: ed25519PublicHex, messageHex: messageHex, signatureHex: signatureHex)
+    }
+}
+
 @objc(PubkyNoiseModule)
 class PubkyNoiseModule: NSObject {
     
@@ -90,7 +127,7 @@ class PubkyNoiseModule: NSObject {
         reject: @escaping RCTPromiseRejectBlock
     ) {
         DispatchQueue.global(qos: .userInitiated).async {
-            let keypair = x25519GenerateKeypair()
+            let keypair = NoiseFFI.generateX25519Keypair()
             let result: [String: Any] = [
                 "secretKey": keypair.secretKey.hexString,
                 "publicKey": keypair.publicKey.hexString
@@ -113,7 +150,7 @@ class PubkyNoiseModule: NSObject {
             }
             
             do {
-                let publicKey = try x25519PublicFromSecret(secret: secretKey)
+                let publicKey = try NoiseFFI.x25519PublicFromSecret(secret: secretKey)
                 resolve(publicKey.hexString)
             } catch {
                 reject("KEY_ERROR", "Failed to derive public key: \(error)", error)
@@ -143,7 +180,7 @@ class PubkyNoiseModule: NSObject {
             }
             
             do {
-                let envelope = try sealedBlobEncrypt(
+                let envelope = try NoiseFFI.sealedBlobEncrypt(
                     recipientPk: recipientPk,
                     plaintext: plaintext,
                     aad: aad,
@@ -172,7 +209,7 @@ class PubkyNoiseModule: NSObject {
             }
             
             do {
-                let plaintext = try sealedBlobDecrypt(
+                let plaintext = try NoiseFFI.sealedBlobDecrypt(
                     recipientSk: recipientSk,
                     envelopeJson: envelopeJson,
                     aad: aad
@@ -191,7 +228,7 @@ class PubkyNoiseModule: NSObject {
         resolve: @escaping RCTPromiseResolveBlock,
         reject: @escaping RCTPromiseRejectBlock
     ) {
-        let result = isSealedBlob(json: json)
+        let result = NoiseFFI.isSealedBlob(json: json)
         resolve(result)
     }
     
@@ -205,7 +242,7 @@ class PubkyNoiseModule: NSObject {
     ) {
         DispatchQueue.global(qos: .userInitiated).async {
             do {
-                let seedHex = try deriveNoiseSeed(ed25519SecretHex: ed25519SecretHex, deviceIdHex: deviceIdHex)
+                let seedHex = try NoiseFFI.deriveNoiseSeed(ed25519SecretHex: ed25519SecretHex, deviceIdHex: deviceIdHex)
                 resolve(seedHex)
             } catch {
                 reject("DERIVATION_ERROR", "Failed to derive noise seed: \(error)", error)
@@ -225,7 +262,7 @@ class PubkyNoiseModule: NSObject {
     ) {
         DispatchQueue.global(qos: .userInitiated).async {
             do {
-                let signature = try ed25519Sign(ed25519SecretHex: ed25519SecretHex, messageHex: messageHex)
+                let signature = try NoiseFFI.ed25519Sign(ed25519SecretHex: ed25519SecretHex, messageHex: messageHex)
                 resolve(signature)
             } catch {
                 reject("SIGNING_ERROR", "Failed to sign message: \(error)", error)
@@ -244,7 +281,7 @@ class PubkyNoiseModule: NSObject {
     ) {
         DispatchQueue.global(qos: .userInitiated).async {
             do {
-                let isValid = try ed25519Verify(ed25519PublicHex: ed25519PublicHex, messageHex: messageHex, signatureHex: signatureHex)
+                let isValid = try NoiseFFI.ed25519Verify(ed25519PublicHex: ed25519PublicHex, messageHex: messageHex, signatureHex: signatureHex)
                 resolve(isValid)
             } catch {
                 reject("VERIFY_ERROR", "Failed to verify signature: \(error)", error)

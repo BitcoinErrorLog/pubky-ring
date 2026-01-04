@@ -45,20 +45,16 @@ type PaykitConnectActionData = {
 
 /**
  * Generate a cryptographically random request ID (256 bits as hex)
- * SECURITY: Uses crypto.getRandomValues only. Throws if unavailable.
+ * Uses the pubky-noise native module's X25519 keypair generation
+ * which internally uses the platform's secure random generator.
  */
-const generateRequestId = (): string => {
-	if (typeof crypto === 'undefined' || !crypto.getRandomValues) {
-		throw new Error(
-			'crypto.getRandomValues is not available. ' +
-			'Secure random generation is required for request IDs.'
-		);
-	}
-	const array = new Uint8Array(32);
-	crypto.getRandomValues(array);
-	return Array.from(array)
-		.map(b => b.toString(16).padStart(2, '0'))
-		.join('');
+const generateRequestId = async (): Promise<string> => {
+	// Generate an ephemeral X25519 keypair - the secret key is 32 random bytes
+	// This leverages the native module's secure random generation
+	const { x25519GenerateKeypair } = await import('../PubkyNoiseModule');
+	const keypair = await x25519GenerateKeypair();
+	// Use the secret key as our random request ID (it's 32 cryptographically random bytes)
+	return keypair.secretKey;
 };
 
 /**
@@ -294,7 +290,7 @@ const handleSecureHandoff = async ({
 	ephemeralPk: string;
 }): Promise<Result<string>> => {
 	// Generate random request ID (256 bits)
-	const requestId = generateRequestId();
+	const requestId = await generateRequestId();
 
 	// Build handoff payload
 	const noiseKeypairs = [{ epoch: 0, public_key: keypair0.publicKey, secret_key: keypair0.secretKey }];
@@ -325,14 +321,12 @@ const handleSecureHandoff = async ({
 
 	let encryptedEnvelope: string;
 	try {
-		console.log('[PaykitConnectAction] Calling sealedBlobEncrypt with ephemeralPk:', ephemeralPk.substring(0, 16) + '...');
 		encryptedEnvelope = await sealedBlobEncrypt(
 			ephemeralPk,
 			payloadHex,
 			aad,
 			'handoff',
 		);
-		console.log('[PaykitConnectAction] sealedBlobEncrypt returned:', encryptedEnvelope.substring(0, 200));
 	} catch (encryptError) {
 		const errorMessage = encryptError instanceof Error ? encryptError.message : 'Encryption failed';
 		console.error('[PaykitConnectAction] Encryption error:', errorMessage);
@@ -351,7 +345,6 @@ const handleSecureHandoff = async ({
 
 	// Parse the envelope JSON and store it
 	const envelopeObj = JSON.parse(encryptedEnvelope);
-	console.log('[PaykitConnectAction] Storing envelope with v:', envelopeObj.v, 'at path:', handoffPath);
 	const putResult = await put(handoffPath, envelopeObj, ed25519SecretKey);
 	if (putResult.isErr()) {
 		const errorMessage = getErrorMessage(putResult.error, 'Failed to store handoff payload');
@@ -387,8 +380,6 @@ const handleSecureHandoff = async ({
 			'[PaykitConnectAction] Failed to publish Noise endpoint:',
 			getErrorMessage(noiseResult.error, 'Unknown error')
 		);
-	} else {
-		console.log('[PaykitConnectAction] Published Noise endpoint:', keypair0.publicKey.substring(0, 16) + '...');
 	}
 
 	// Build callback URL with only pubky and request_id (no secrets)
