@@ -23,13 +23,15 @@
  */
 
 import { Result, ok, err } from '@synonymdev/result';
-import { Linking } from 'react-native';
-import { put } from '@synonymdev/react-native-pubky';
+import { Linking, NativeModules } from 'react-native';
+import { put as originalPut } from '@synonymdev/react-native-pubky';
 import { InputAction, PaykitConnectParams } from '../inputParser';
 import { ActionContext } from '../inputRouter';
 import { signInToHomeserver, getPubkySecretKey } from '../pubky';
 import { showToast } from '../helpers';
 import { getErrorMessage } from '../errorHandler';
+import { getPubkyDataFromStore } from '../store-helpers';
+import { DEFAULT_HOMESERVER, PRODUCTION_HOMESERVER } from '../constants';
 import i18n from '../../i18n';
 import {
 	deriveX25519ForDeviceEpoch as nativeDeriveX25519,
@@ -37,6 +39,39 @@ import {
 	isNativeModuleAvailable,
 	sealedBlobEncrypt,
 } from '../PubkyNoiseModule';
+
+/**
+ * Wrapper for put() that properly captures native errors
+ * The react-native-pubky library uses JSON.stringify(e) which returns {} for Error objects
+ */
+const put = async (url: string, content: object, secretKey: string): Promise<Result<string[]>> => {
+	try {
+		// Try calling the native module directly to get better error messages
+		const Pubky = NativeModules.Pubky;
+		if (!Pubky) {
+			return err('Pubky native module not available');
+		}
+		const res = await Pubky.put(url, JSON.stringify(content), secretKey);
+		if (res[0] === 'error') {
+			return err(res[1] || 'Native put returned error');
+		}
+		return ok(res[1]);
+	} catch (e: unknown) {
+		// Properly extract error message from native errors
+		let message = 'Unknown native error';
+		if (e instanceof Error) {
+			message = e.message || e.name || 'Error (no message)';
+		} else if (typeof e === 'string') {
+			message = e;
+		} else if (e && typeof e === 'object') {
+			message = (e as Record<string, unknown>).message as string || 
+			          (e as Record<string, unknown>).error as string || 
+			          JSON.stringify(e);
+		}
+		console.error('[put wrapper] Native error:', message);
+		return err(message);
+	}
+};
 
 type PaykitConnectActionData = {
 	action: InputAction.PaykitConnect;
@@ -196,12 +231,14 @@ export const handlePaykitConnectAction = async (
 
 	try {
 		// Step 1: Sign in to homeserver
+		console.log('[PaykitConnectAction] Step 1: Signing in to homeserver for pubky:', pubky?.substring(0, 16));
 		const signInResult = await signInToHomeserver({
 			pubky,
 			dispatch,
 		});
 
 		if (signInResult.isErr()) {
+			console.error('[PaykitConnectAction] Sign-in FAILED:', signInResult.error);
 			const errorMessage = getErrorMessage(signInResult.error, i18n.t('errors.signInFailed'));
 			showToast({
 				type: 'error',
@@ -212,6 +249,7 @@ export const handlePaykitConnectAction = async (
 		}
 
 		const sessionInfo = signInResult.value;
+		console.log('[PaykitConnectAction] Sign-in SUCCESS. Session pubky:', sessionInfo.pubky?.substring(0, 16));
 
 		// Step 2: Get Ed25519 secret key for noise key derivation
 		const secretKeyResult = await getPubkySecretKey(pubky);
@@ -345,13 +383,39 @@ const handleSecureHandoff = async ({
 
 	// Parse the envelope JSON and store it
 	const envelopeObj = JSON.parse(encryptedEnvelope);
+	console.log('[PaykitConnectAction] Storing handoff at:', handoffPath);
+	console.log('[PaykitConnectAction] Envelope keys:', Object.keys(envelopeObj));
+	console.log('[PaykitConnectAction] SecretKey length:', ed25519SecretKey?.length);
 	const putResult = await put(handoffPath, envelopeObj, ed25519SecretKey);
 	if (putResult.isErr()) {
-		const errorMessage = getErrorMessage(putResult.error, 'Failed to store handoff payload');
+		// Extract all possible error info - handle various error formats
+		const errorObj = putResult.error;
+		let errorDetails = '';
+		if (typeof errorObj === 'string') {
+			// String error message
+			errorDetails = errorObj;
+		} else if (errorObj instanceof Error) {
+			// Native Error object - message property is non-enumerable
+			errorDetails = errorObj.message || errorObj.name || 'Unknown Error';
+		} else if (errorObj && typeof errorObj === 'object') {
+			// Object - try to extract message property first
+			const msg = (errorObj as Record<string, unknown>).message || 
+			            (errorObj as Record<string, unknown>).error ||
+			            (errorObj as Record<string, unknown>).description;
+			if (msg && typeof msg === 'string') {
+				errorDetails = msg;
+			} else {
+				// Fallback to JSON stringify
+				errorDetails = JSON.stringify(errorObj);
+			}
+		}
+		console.error('[PaykitConnectAction] PUT failed. Error type:', typeof errorObj, 'Details:', errorDetails);
+		// Show detailed error in toast for debugging
+		const errorMessage = errorDetails || 'Failed to store handoff payload (unknown error)';
 		showToast({
 			type: 'error',
-			title: i18n.t('common.error'),
-			description: errorMessage,
+			title: 'PUT Failed',
+			description: errorMessage.substring(0, 200),
 		});
 		return err(errorMessage);
 	}
@@ -382,14 +446,22 @@ const handleSecureHandoff = async ({
 		);
 	}
 
-	// Build callback URL with only pubky and request_id (no secrets)
+	// Get the user's homeserver pubkey for the callback
+	const pubkyData = getPubkyDataFromStore(sessionInfo.pubky);
+	const homeserverPubkey = pubkyData?.homeserver || DEFAULT_HOMESERVER;
+
+	// Build callback URL with pubky, request_id, and homeserver
+	// Homeserver is needed for iOS which doesn't have pkarr resolution
 	const callbackParams: Record<string, string> = {
 		pubky: sessionInfo.pubky,
 		request_id: requestId,
 		mode: 'secure_handoff',
+		homeserver: homeserverPubkey,
 	};
 
 	const callbackUrl = buildCallbackUrl(callback, callbackParams);
+	console.log('[PaykitConnectAction] Callback URL:', callbackUrl);
+	console.log('[PaykitConnectAction] Callback params:', JSON.stringify(callbackParams));
 
 	// Open the callback URL
 	const canOpen = await Linking.canOpenURL(callbackUrl);

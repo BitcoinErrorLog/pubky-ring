@@ -14,6 +14,7 @@
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		761780EE2CA45675006654EF /* PubkyNoise.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EB2CA45675006654EF /* PubkyNoise.swift */; };
 		761780EF2CA45676006654F0 /* PubkyNoiseModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EA2CA45676006654F0 /* PubkyNoiseModule.swift */; };
+		761780F02CA45677006654F1 /* PubkyNoiseModule.m in Sources */ = {isa = PBXBuildFile; fileRef = 761780E92CA45677006654F1 /* PubkyNoiseModule.m */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		EDA8BA3DC675EC72EC220948 /* libPods-pubkyring.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5BF5DE49A38CCDD651D75778 /* libPods-pubkyring.a */; };
 /* End PBXBuildFile section */
@@ -24,6 +25,7 @@
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = pubkyring/Info.plist; sourceTree = "<group>"; };
 		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = pubkyring/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		5BF5DE49A38CCDD651D75778 /* libPods-pubkyring.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-pubkyring.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		761780E92CA45677006654F1 /* PubkyNoiseModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = PubkyNoiseModule.m; path = pubkyring/PubkyNoiseModule.m; sourceTree = "<group>"; };
 		761780EA2CA45676006654F0 /* PubkyNoiseModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PubkyNoiseModule.swift; path = pubkyring/PubkyNoiseModule.swift; sourceTree = "<group>"; };
 		761780EB2CA45675006654EF /* PubkyNoise.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PubkyNoise.swift; path = pubkyring/PubkyNoise.swift; sourceTree = "<group>"; };
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = pubkyring/AppDelegate.swift; sourceTree = "<group>"; };
@@ -54,6 +56,7 @@
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
 				761780EB2CA45675006654EF /* PubkyNoise.swift */,
 				761780EA2CA45676006654F0 /* PubkyNoiseModule.swift */,
+				761780E92CA45677006654F1 /* PubkyNoiseModule.m */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
@@ -271,6 +274,7 @@
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
 				761780EE2CA45675006654EF /* PubkyNoise.swift in Sources */,
 				761780EF2CA45676006654F0 /* PubkyNoiseModule.swift in Sources */,
+				761780F02CA45677006654F1 /* PubkyNoiseModule.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -307,6 +311,12 @@
 					"-lc++",
 					"$(inherited)",
 					"-lpubky_noise",
+					"$(inherited)",
+					"-force_load",
+					"$(SRCROOT)/PubkyNoise.xcframework/ios-arm64_x86_64-simulator/libpubky_noise.a",
+					"$(inherited)",
+					"-force_load",
+					"$(SRCROOT)/PubkyNoise.xcframework/ios-arm64_x86_64-simulator/libpubky_noise.a",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.pubkyring;
 				PRODUCT_NAME = pubkyring;
@@ -346,6 +356,12 @@
 					"-lc++",
 					"$(inherited)",
 					"-lpubky_noise",
+					"$(inherited)",
+					"-force_load",
+					"$(SRCROOT)/PubkyNoise.xcframework/ios-arm64/libpubky_noise.a",
+					"$(inherited)",
+					"-force_load",
+					"$(SRCROOT)/PubkyNoise.xcframework/ios-arm64/libpubky_noise.a",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.pubkyring;
 				PRODUCT_NAME = pubkyring;

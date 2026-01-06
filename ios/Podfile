@@ -93,12 +93,14 @@ target 'pubkyring' do
             config.build_settings['LIBRARY_SEARCH_PATHS'] = lib_paths
           end
           
-          # OTHER_LDFLAGS - link the library
+          # OTHER_LDFLAGS - force load the library to ensure FFI symbols are included
           ld_flags = config.build_settings['OTHER_LDFLAGS'] || []
           ld_flags = [ld_flags] if ld_flags.is_a?(String)
-          unless ld_flags.include?('-lpubky_noise')
+          unless ld_flags.any? { |f| f.to_s.include?('force_load') && f.to_s.include?('pubky_noise') }
             ld_flags << '$(inherited)'
-            ld_flags << '-lpubky_noise'
+            # Use force_load to include all FFI symbols even if they appear unused
+            ld_flags << '-force_load'
+            ld_flags << "#{xcframework_lib}/libpubky_noise.a"
             config.build_settings['OTHER_LDFLAGS'] = ld_flags
           end
         end

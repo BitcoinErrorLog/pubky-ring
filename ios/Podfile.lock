@@ -1901,6 +1901,8 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
+  - react-native-get-random-values (1.11.0):
+    - React-Core
   - react-native-netinfo (11.4.1):
     - React-Core
   - react-native-pubky (0.11.1):
@@ -3186,6 +3188,7 @@ DEPENDENCIES:
   - React-microtasksnativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
   - "react-native-blur (from `../node_modules/@react-native-community/blur`)"
   - "react-native-document-picker (from `../node_modules/@react-native-documents/picker`)"
+  - react-native-get-random-values (from `../node_modules/react-native-get-random-values`)
   - "react-native-netinfo (from `../node_modules/@react-native-community/netinfo`)"
   - "react-native-pubky (from `../node_modules/@synonymdev/react-native-pubky`)"
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
@@ -3335,6 +3338,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/@react-native-community/blur"
   react-native-document-picker:
     :path: "../node_modules/@react-native-documents/picker"
+  react-native-get-random-values:
+    :path: "../node_modules/react-native-get-random-values"
   react-native-netinfo:
     :path: "../node_modules/@react-native-community/netinfo"
   react-native-pubky:
@@ -3483,6 +3488,7 @@ SPEC CHECKSUMS:
   React-microtasksnativemodule: d1ee999dc9052e23f6488b730fa2d383a4ea40e5
   react-native-blur: 6af83e7e3c4c1446a188d9b2c493600fc4beb173
   react-native-document-picker: 1734eb0aa3dbd1cd7bf1b105936f9b55031ae616
+  react-native-get-random-values: d16467cf726c618e9c7a8c3c39c31faa2244bbba
   react-native-netinfo: cec9c4e86083cb5b6aba0e0711f563e2fbbff187
   react-native-pubky: b512404b050c05c2d68c4ba4afdee9f9d465a411
   react-native-safe-area-context: c6e2edd1c1da07bdce287fa9d9e60c5f7b514616
@@ -3535,6 +3541,6 @@ SPEC CHECKSUMS:
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
   Yoga: 689c8e04277f3ad631e60fe2a08e41d411daf8eb
 
-PODFILE CHECKSUM: 797b2836782ddcc7547d5aecb54440def0cdbf9b
+PODFILE CHECKSUM: b8ac7d6f9c76f807517553e1f9edc33fc5ba060b
 
 COCOAPODS: 1.16.2
