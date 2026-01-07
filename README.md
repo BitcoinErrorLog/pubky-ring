@@ -8,6 +8,7 @@ Pubky Ring is the key manager for your identity in the Pubky ecosystem. It lets 
 
 **For detailed information on how Bitkit integrates with Ring for Paykit support, see:**
 - **[Bitkit + Paykit Integration Master Guide](https://github.com/BitcoinErrorLog/paykit-rs/blob/main/docs/BITKIT_PAYKIT_INTEGRATION_MASTERGUIDE.md)**
+- **[Pubky Crypto Spec](https://github.com/pubky/pubky-core/blob/main/docs/PUBKY_CRYPTO_SPEC.md)** — Key derivation, Sealed Blob envelopes, Noise protocol, and security model
 
 This guide covers:
 - Ring's PubkyNoiseModule native architecture (iOS + Android)
