@@ -3,7 +3,7 @@
 
 @file:Suppress("NAME_SHADOWING")
 
-package uniffi.pubky_noise
+package com.pubky.noise
 
 // Common helper code.
 //
@@ -1097,7 +1097,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_pubky_noise_checksum_func_ed25519_verify() != 14993.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_pubky_noise_checksum_func_is_sealed_blob() != 59485.toShort()) {
+    if (lib.uniffi_pubky_noise_checksum_func_is_sealed_blob() != 27217.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_pubky_noise_checksum_func_performance_config() != 613.toShort()) {
@@ -1106,10 +1106,10 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_pubky_noise_checksum_func_public_key_from_secret() != 12954.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_pubky_noise_checksum_func_sealed_blob_decrypt() != 36862.toShort()) {
+    if (lib.uniffi_pubky_noise_checksum_func_sealed_blob_decrypt() != 39236.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_pubky_noise_checksum_func_sealed_blob_encrypt() != 44846.toShort()) {
+    if (lib.uniffi_pubky_noise_checksum_func_sealed_blob_encrypt() != 19222.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_pubky_noise_checksum_func_x25519_generate_keypair() != 20350.toShort()) {
@@ -2801,8 +2801,9 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
     
 
         /**
-         * Check if a JSON string looks like a sealed blob envelope.
+         * Check if a JSON string looks like a sealed blob envelope (v1 or v2).
          *
+         * Requires both version field (`"v":1` or `"v":2`) AND ephemeral public key (`"epk":`).
          * This is a quick heuristic check for distinguishing encrypted from legacy plaintext.
          */ fun `isSealedBlob`(`json`: kotlin.String): kotlin.Boolean {
             return FfiConverterBoolean.lift(
@@ -2841,12 +2842,12 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
     
 
         /**
-         * Decrypt a Paykit Sealed Blob v1 envelope.
+         * Decrypt a Paykit Sealed Blob v1 or v2 envelope (auto-detects version).
          *
          * # Arguments
          *
          * * `recipient_sk` - Recipient's X25519 secret key (32 bytes)
-         * * `envelope_json` - JSON-encoded sealed blob envelope
+         * * `envelope_json` - JSON-encoded sealed blob envelope (v1 or v2)
          * * `aad` - Associated authenticated data (must match encryption)
          *
          * # Returns
@@ -2869,7 +2870,7 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
     
 
         /**
-         * Encrypt plaintext using Paykit Sealed Blob v1 format.
+         * Encrypt plaintext using Paykit Sealed Blob v2 format (XChaCha20-Poly1305).
          *
          * # Arguments
          *
@@ -2880,7 +2881,7 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
          *
          * # Returns
          *
-         * JSON-encoded sealed blob envelope.
+         * JSON-encoded sealed blob v2 envelope.
          *
          * # Errors
          *

@@ -12,7 +12,7 @@
  *
  * SECURE HANDOFF ONLY (ephemeralPk REQUIRED):
  * - Bitkit sends: pubkyring://paykit-connect?deviceId=abc&callback=...&ephemeralPk=xyz
- * - Ring encrypts payload using Bitkit's ephemeral X25519 public key (Paykit Sealed Blob v1)
+ * - Ring encrypts payload using Bitkit's ephemeral X25519 public key (Paykit Sealed Blob v2)
  * - Ring stores encrypted envelope at /pub/paykit.app/v0/handoff/{request_id}
  * - Ring returns only: bitkit://paykit-setup?pubky=...&request_id=...&mode=secure_handoff
  * - Bitkit fetches envelope from homeserver, decrypts with ephemeral secret key
@@ -304,7 +304,7 @@ export const handlePaykitConnectAction = async (
 
 /**
  * Secure handoff: Encrypt and store payload on homeserver, return only request_id
- * Uses Paykit Sealed Blob v1 format for encryption
+ * Uses Paykit Sealed Blob v2 format for encryption (XChaCha20-Poly1305)
  */
 const handleSecureHandoff = async ({
 	pubky,
@@ -338,7 +338,7 @@ const handleSecureHandoff = async ({
 
 	const now = Date.now();
 	const payload: HandoffPayload = {
-		version: 1,
+		version: 2,
 		pubky: sessionInfo.pubky,
 		session_secret: sessionInfo.session_secret,
 		capabilities: sessionInfo.capabilities,

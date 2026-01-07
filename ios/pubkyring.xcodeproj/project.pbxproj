@@ -317,6 +317,9 @@
 					"$(inherited)",
 					"-force_load",
 					"$(SRCROOT)/PubkyNoise.xcframework/ios-arm64_x86_64-simulator/libpubky_noise.a",
+					"$(inherited)",
+					"-force_load",
+					"$(SRCROOT)/PubkyNoise.xcframework/ios-arm64_x86_64-simulator/libpubky_noise.a",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.pubkyring;
 				PRODUCT_NAME = pubkyring;
@@ -356,6 +359,9 @@
 					"-lc++",
 					"$(inherited)",
 					"-lpubky_noise",
+					"$(inherited)",
+					"-force_load",
+					"$(SRCROOT)/PubkyNoise.xcframework/ios-arm64/libpubky_noise.a",
 					"$(inherited)",
 					"-force_load",
 					"$(SRCROOT)/PubkyNoise.xcframework/ios-arm64/libpubky_noise.a",

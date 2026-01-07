@@ -12,6 +12,11 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="paykit" />
         </intent>
+        <!-- Allow opening atomicity:// callback URLs -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="atomicity" />
+        </intent>
     </queries>
 
     <uses-feature

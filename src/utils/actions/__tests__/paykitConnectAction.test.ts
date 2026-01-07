@@ -116,7 +116,7 @@ describe('paykitConnectAction', () => {
 		});
 		(deriveNoiseSeed as jest.Mock).mockResolvedValue('e'.repeat(64));
 		(sealedBlobEncrypt as jest.Mock).mockResolvedValue(
-			JSON.stringify({ v: 1, ct: 'encrypted', epk: 'f'.repeat(64) })
+			JSON.stringify({ v: 2, ct: 'encrypted', epk: 'f'.repeat(64), nonce: 'g'.repeat(32) })
 		);
 		(put as jest.Mock).mockResolvedValue(createOkResult(undefined));
 	});

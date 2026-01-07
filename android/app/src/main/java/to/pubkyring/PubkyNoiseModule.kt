@@ -5,21 +5,21 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
-import uniffi.pubky_noise.FfiConnectionStatus
-import uniffi.pubky_noise.FfiMobileConfig
-import uniffi.pubky_noise.FfiNoiseManager
-import uniffi.pubky_noise.FfiSessionState
-import uniffi.pubky_noise.batterySaverConfig
-import uniffi.pubky_noise.defaultConfig
-import uniffi.pubky_noise.deriveDeviceKey
-import uniffi.pubky_noise.performanceConfig
-import uniffi.pubky_noise.publicKeyFromSecret
-import uniffi.pubky_noise.sealedBlobDecrypt
-import uniffi.pubky_noise.sealedBlobEncrypt
-import uniffi.pubky_noise.x25519GenerateKeypair
-import uniffi.pubky_noise.x25519PublicFromSecret
-import uniffi.pubky_noise.ed25519Sign
-import uniffi.pubky_noise.ed25519Verify
+import com.pubky.noise.FfiConnectionStatus
+import com.pubky.noise.FfiMobileConfig
+import com.pubky.noise.FfiNoiseManager
+import com.pubky.noise.FfiSessionState
+import com.pubky.noise.batterySaverConfig
+import com.pubky.noise.defaultConfig
+import com.pubky.noise.deriveDeviceKey
+import com.pubky.noise.performanceConfig
+import com.pubky.noise.publicKeyFromSecret
+import com.pubky.noise.sealedBlobDecrypt
+import com.pubky.noise.sealedBlobEncrypt
+import com.pubky.noise.x25519GenerateKeypair
+import com.pubky.noise.x25519PublicFromSecret
+import com.pubky.noise.ed25519Sign
+import com.pubky.noise.ed25519Verify
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -99,7 +99,7 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
         }
     }
 
-    // MARK: - Sealed Blob v1
+    // MARK: - Sealed Blob v2 (v1 backward compatible for decryption)
 
     /**
      * Generate a new X25519 keypair for sealed blob encryption
@@ -142,7 +142,7 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
     }
 
     /**
-     * Encrypt plaintext using Paykit Sealed Blob v1 format
+     * Encrypt plaintext using Paykit Sealed Blob v2 format (XChaCha20-Poly1305)
      */
     @ReactMethod
     fun sealedBlobEncrypt(
@@ -170,7 +170,7 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
     }
 
     /**
-     * Decrypt a Paykit Sealed Blob v1 envelope
+     * Decrypt a Paykit Sealed Blob v1 or v2 envelope (auto-detects version)
      */
     @ReactMethod
     fun sealedBlobDecrypt(
@@ -196,12 +196,12 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
     }
 
     /**
-     * Check if a JSON string looks like a sealed blob envelope
+     * Check if a JSON string looks like a sealed blob envelope (v1 or v2)
      */
     @ReactMethod
     fun isSealedBlob(json: String, promise: Promise) {
         try {
-            val result = uniffi.pubky_noise.isSealedBlob(json)
+            val result = com.pubky.noise.isSealedBlob(json)
             promise.resolve(result)
         } catch (e: Exception) {
             promise.reject("CHECK_ERROR", "Failed to check sealed blob: ${e.message}", e)
@@ -223,7 +223,7 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
     ) {
         scope.launch {
             try {
-                val seedHex = uniffi.pubky_noise.deriveNoiseSeed(ed25519SecretHex, deviceIdHex)
+                val seedHex = com.pubky.noise.deriveNoiseSeed(ed25519SecretHex, deviceIdHex)
                 promise.resolve(seedHex)
             } catch (e: Exception) {
                 promise.reject("DERIVATION_ERROR", "Failed to derive noise seed: ${e.message}", e)
