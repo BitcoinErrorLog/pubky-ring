@@ -394,7 +394,7 @@ export const restoreSessionState = async (
 };
 
 // ============================================================================
-// Sealed Blob v1 Functions
+// Sealed Blob Functions (v1/v2 auto-detected on decrypt)
 // ============================================================================
 
 /**
@@ -450,13 +450,13 @@ export const deriveNoiseSeed = async (
 };
 
 /**
- * Encrypt plaintext using Paykit Sealed Blob v1 format
+ * Encrypt plaintext using Paykit Sealed Blob v2 format (XChaCha20-Poly1305)
  *
  * @param recipientPkHex - Recipient's X25519 public key as hex string (32 bytes)
  * @param plaintextHex - Plaintext to encrypt as hex string
- * @param aad - Associated authenticated data (e.g., "handoff:pubkey:/path")
+ * @param aad - Associated authenticated data (owner-bound format for v2)
  * @param purpose - Optional purpose hint ("handoff", "request", "proposal")
- * @returns Promise resolving to JSON-encoded sealed blob envelope
+ * @returns Promise resolving to JSON-encoded sealed blob envelope (v=2)
  */
 export const sealedBlobEncrypt = async (
 	recipientPkHex: string,
@@ -471,7 +471,7 @@ export const sealedBlobEncrypt = async (
 };
 
 /**
- * Decrypt a Paykit Sealed Blob v1 envelope
+ * Decrypt a Paykit Sealed Blob envelope (v1 or v2 auto-detected)
  *
  * @param recipientSkHex - Recipient's X25519 secret key as hex string (32 bytes)
  * @param envelopeJson - JSON-encoded sealed blob envelope
@@ -557,7 +557,7 @@ export default {
 	deriveX25519ForDeviceEpoch,
 	getPublicKey,
 	deriveNoiseSeed,
-	// Sealed Blob v1
+	// Sealed Blob (v2 encrypt, v1/v2 auto-detect decrypt)
 	x25519GenerateKeypair,
 	x25519PublicFromSecret,
 	sealedBlobEncrypt,
