@@ -30,6 +30,8 @@ jest.mock('../../PubkyNoiseModule', () => ({
 	deriveNoiseSeed: jest.fn(),
 	isNativeModuleAvailable: jest.fn(),
 	sealedBlobEncrypt: jest.fn(),
+	sealedBlobEncryptWithContext: jest.fn(),
+	ed25519PublicFromSecret: jest.fn(),
 }));
 
 jest.mock('../../helpers', () => ({
@@ -53,6 +55,8 @@ import {
 	deriveNoiseSeed,
 	isNativeModuleAvailable,
 	sealedBlobEncrypt,
+	sealedBlobEncryptWithContext,
+	ed25519PublicFromSecret,
 } from '../../PubkyNoiseModule';
 import { showToast } from '../../helpers';
 
@@ -115,6 +119,12 @@ describe('paykitConnectAction', () => {
 			secretKey: 'd'.repeat(64),
 		});
 		(deriveNoiseSeed as jest.Mock).mockResolvedValue('e'.repeat(64));
+		// Mock the new spec-compliant encryption function
+		(ed25519PublicFromSecret as jest.Mock).mockResolvedValue('1'.repeat(64));
+		(sealedBlobEncryptWithContext as jest.Mock).mockResolvedValue(
+			JSON.stringify({ v: 2, ct: 'encrypted', epk: 'f'.repeat(64), nonce: 'g'.repeat(32) })
+		);
+		// Keep legacy mock for backward compatibility tests
 		(sealedBlobEncrypt as jest.Mock).mockResolvedValue(
 			JSON.stringify({ v: 2, ct: 'encrypted', epk: 'f'.repeat(64), nonce: 'g'.repeat(32) })
 		);
@@ -239,15 +249,20 @@ describe('paykitConnectAction', () => {
 			);
 		});
 
-		it('should encrypt payload using sealedBlobEncrypt', async () => {
+		it('should encrypt payload using spec-compliant sealedBlobEncryptWithContext', async () => {
 			const data = createActionData();
 
 			await handlePaykitConnectAction(data, mockContext);
 
-			expect(sealedBlobEncrypt).toHaveBeenCalledWith(
+			// Should derive Ed25519 public key (owner peerid) from secret key
+			expect(ed25519PublicFromSecret).toHaveBeenCalledWith(mockSecretKey);
+			
+			// Should use the new spec-compliant encryption with owner peerid and canonical path
+			expect(sealedBlobEncryptWithContext).toHaveBeenCalledWith(
 				mockEphemeralPk,
 				expect.any(String), // payload hex
-				expect.stringContaining('paykit:v0:handoff'),
+				expect.stringMatching(/^1{64}$/), // owner peerid from mock
+				expect.stringContaining('/pub/paykit.app/v0/handoff/'), // canonical path
 				'handoff'
 			);
 		});

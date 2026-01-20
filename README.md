@@ -7,8 +7,9 @@ Pubky Ring is the key manager for your identity in the Pubky ecosystem. It lets 
 ## Paykit Integration Guide
 
 **For detailed information on how Bitkit integrates with Ring for Paykit support, see:**
-- **[Bitkit + Paykit Integration Master Guide](https://github.com/BitcoinErrorLog/paykit-rs/blob/main/docs/BITKIT_PAYKIT_INTEGRATION_MASTERGUIDE.md)**
+- **[Bitkit + Paykit Integration Master Guide](https://github.com/BitcoinErrorLog/paykit-rs/blob/main/BITKIT_PAYKIT_INTEGRATION_MASTERGUIDE.md)**
 - **[Pubky Crypto Spec](https://github.com/pubky/pubky-core/blob/main/docs/PUBKY_CRYPTO_SPEC.md)** — Key derivation, Sealed Blob envelopes, Noise protocol, and security model
+- **[Unified Key Delegation Spec](https://github.com/pubky/pubky-core/blob/main/docs/PUBKY_UNIFIED_KEY_DELEGATION_SPEC_v0.2.md)** — AppCert, delegated keys, typed signing
 
 This guide covers:
 - Ring's PubkyNoiseModule native architecture (iOS + Android)
@@ -16,6 +17,30 @@ This guide covers:
 - Session + noise key derivation and callback protocols
 - Cross-device authentication with relay polling
 - Integration with Bitkit iOS and Bitkit Android
+- Spec-compliant AAD construction (PUBKY_CRYPTO_SPEC Section 7.5)
+- Unified Key Delegation (UKD) for AppCerts and typed signing
+
+## Crypto Spec Compliance (January 2026)
+
+Pubky Ring implements:
+
+### Spec-Compliant Sealed Blob v2
+- **AAD construction**: `pubky-envelope/v2:` || owner_peerid_bytes || canonical_path_bytes || header_bytes
+- Uses `sealedBlobEncryptWithContext` for secure handoff payloads
+- Timestamps in Unix seconds (not milliseconds)
+
+### Unified Key Delegation (UKD v0.2) — Planned
+
+The following UKD functions are available in the underlying `pubky-noise` Rust library but are **not yet exposed** to Ring's JavaScript layer:
+
+- `issueAppCert()` — Root-signed certificates binding AppKey, TransportKey, and InboxKey
+- `signTypedContent()` — Sign content with AppKey using content_type constraints
+- `generateAppKeypair()` — Generate new Ed25519 keypairs for delegation
+- `verifyAppCert()` / `verifyTypedContent()` — Verification functions
+
+These functions are available via native bindings (Kotlin/Swift) but require additional React Native bridge work to expose to the JS layer.
+
+See [NATIVE_LIBRARIES.md](NATIVE_LIBRARIES.md) for rebuilding native libraries.
 
 # What You Can Do
 - Authorize or revoke access to services

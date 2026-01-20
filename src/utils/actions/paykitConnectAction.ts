@@ -37,7 +37,8 @@ import {
 	deriveX25519ForDeviceEpoch as nativeDeriveX25519,
 	deriveNoiseSeed as nativeDeriveNoiseSeed,
 	isNativeModuleAvailable,
-	sealedBlobEncrypt,
+	sealedBlobEncryptWithContext,
+	ed25519PublicFromSecret,
 } from '../PubkyNoiseModule';
 
 /**
@@ -330,13 +331,29 @@ const handleSecureHandoff = async ({
 	// Generate random request ID (256 bits)
 	const requestId = await generateRequestId();
 
+	// Derive owner peerid (Ed25519 public key) from secret key for spec-compliant AAD
+	let ownerPeeridHex: string;
+	try {
+		ownerPeeridHex = await ed25519PublicFromSecret(ed25519SecretKey);
+	} catch (e) {
+		const errorMessage = e instanceof Error ? e.message : 'Failed to derive owner peerid';
+		console.error('[PaykitConnectAction] Failed to derive owner peerid:', errorMessage);
+		showToast({
+			type: 'error',
+			title: i18n.t('common.error'),
+			description: 'Failed to derive owner identity',
+		});
+		return err(errorMessage);
+	}
+
 	// Build handoff payload
 	const noiseKeypairs = [{ epoch: 0, public_key: keypair0.publicKey, secret_key: keypair0.secretKey }];
 	if (keypair1) {
 		noiseKeypairs.push({ epoch: 1, public_key: keypair1.publicKey, secret_key: keypair1.secretKey });
 	}
 
-	const now = Date.now();
+	// Use Unix seconds per PUBKY_CRYPTO_SPEC
+	const nowSeconds = Math.floor(Date.now() / 1000);
 	const payload: HandoffPayload = {
 		version: 2,
 		pubky: sessionInfo.pubky,
@@ -345,24 +362,25 @@ const handleSecureHandoff = async ({
 		device_id: deviceId,
 		noise_keypairs: noiseKeypairs,
 		noise_seed: noiseSeed,
-		created_at: now,
-		expires_at: now + 5 * 60 * 1000, // 5 minute expiry
+		created_at: nowSeconds,
+		expires_at: nowSeconds + 5 * 60, // 5 minute expiry (in seconds)
 	};
 
 	// Encrypt payload to Bitkit's ephemeral X25519 public key
 	// This ensures only Bitkit can decrypt (using its ephemeral secret key)
-	// AAD format follows Paykit v0 protocol: paykit:v0:handoff:{pubky}:{path}:{requestId}
+	// AAD is computed internally per PUBKY_CRYPTO_SPEC Section 7.5:
+	// aad = "pubky-envelope/v2:" || owner_peerid_bytes || canonical_path_bytes || header_bytes
 	const storagePath = `/pub/paykit.app/v0/handoff/${requestId}`;
-	const aad = `paykit:v0:handoff:${pubky}:${storagePath}:${requestId}`;
 	const payloadJson = JSON.stringify(payload);
 	const payloadHex = stringToHex(payloadJson);
 
 	let encryptedEnvelope: string;
 	try {
-		encryptedEnvelope = await sealedBlobEncrypt(
+		encryptedEnvelope = await sealedBlobEncryptWithContext(
 			ephemeralPk,
 			payloadHex,
-			aad,
+			ownerPeeridHex,
+			storagePath,
 			'handoff',
 		);
 	} catch (encryptError) {
@@ -432,7 +450,7 @@ const handleSecureHandoff = async ({
 		metadata: JSON.stringify({
 			provisioned_by: 'ring-handoff',
 			device_id: deviceId,
-			created_at: now,
+			created_at: nowSeconds,
 		}),
 	};
 

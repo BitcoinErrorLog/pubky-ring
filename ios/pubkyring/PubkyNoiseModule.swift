@@ -8,6 +8,7 @@
 
 import Foundation
 import React
+import CryptoKit
 
 // MARK: - FFI Wrappers
 // These wrap the global FFI functions to avoid name collisions with instance methods
@@ -33,6 +34,18 @@ private enum NoiseFFI {
         pubkyring.isSealedBlob(json: json)
     }
     
+    static func sealedBlobEncryptWithContext(recipientPk: Data, plaintext: Data, ownerPeerid: Data, canonicalPath: String, purpose: String?) throws -> String {
+        try pubkyring.sealedBlobEncryptWithContext(recipientPk: recipientPk, plaintext: plaintext, ownerPeerid: ownerPeerid, canonicalPath: canonicalPath, purpose: purpose)
+    }
+    
+    static func sealedBlobDecryptWithContext(recipientSk: Data, envelopeJson: String, ownerPeerid: Data, canonicalPath: String) throws -> Data {
+        try pubkyring.sealedBlobDecryptWithContext(recipientSk: recipientSk, envelopeJson: envelopeJson, ownerPeerid: ownerPeerid, canonicalPath: canonicalPath)
+    }
+    
+    static func ed25519PublicFromSecret(ed25519SecretHex: String) throws -> String {
+        try pubkyring.ed25519PublicFromSecret(ed25519SecretHex: ed25519SecretHex)
+    }
+    
     static func deriveNoiseSeed(ed25519SecretHex: String, deviceIdHex: String) throws -> String {
         try pubkyring.deriveNoiseSeed(ed25519SecretHex: ed25519SecretHex, deviceIdHex: deviceIdHex)
     }
@@ -43,6 +56,72 @@ private enum NoiseFFI {
     
     static func ed25519Verify(ed25519PublicHex: String, messageHex: String, signatureHex: String) throws -> Bool {
         try pubkyring.ed25519Verify(ed25519PublicHex: ed25519PublicHex, messageHex: messageHex, signatureHex: signatureHex)
+    }
+    
+    // MARK: - UKD APIs
+    
+    static func generateAppKeypair() -> FfiEd25519Keypair {
+        pubkyring.generateAppKeypair()
+    }
+    
+    static func issueAppCert(
+        rootSkHex: String,
+        appId: String,
+        appEd25519PubHex: String,
+        transportX25519PubHex: String,
+        inboxX25519PubHex: String,
+        deviceIdHex: String?,
+        scopes: [String]?,
+        expiresAt: UInt64?
+    ) throws -> FfiAppCertResult {
+        try pubkyring.issueAppCert(
+            rootSkHex: rootSkHex,
+            appId: appId,
+            appEd25519PubHex: appEd25519PubHex,
+            transportX25519PubHex: transportX25519PubHex,
+            inboxX25519PubHex: inboxX25519PubHex,
+            deviceIdHex: deviceIdHex,
+            scopes: scopes,
+            expiresAt: expiresAt
+        )
+    }
+    
+    static func verifyAppCert(issuerPeeridHex: String, certBodyHex: String, sigHex: String) throws -> String {
+        try pubkyring.verifyAppCert(issuerPeeridHex: issuerPeeridHex, certBodyHex: certBodyHex, sigHex: sigHex)
+    }
+    
+    static func signTypedContent(
+        appSkHex: String,
+        issuerPeeridHex: String,
+        certIdHex: String,
+        contentType: String,
+        payloadHex: String
+    ) throws -> String {
+        try pubkyring.signTypedContent(
+            appSkHex: appSkHex,
+            issuerPeeridHex: issuerPeeridHex,
+            certIdHex: certIdHex,
+            contentType: contentType,
+            payloadHex: payloadHex
+        )
+    }
+    
+    static func verifyTypedContent(
+        appEd25519PubHex: String,
+        issuerPeeridHex: String,
+        certIdHex: String,
+        contentType: String,
+        payloadHex: String,
+        sigHex: String
+    ) throws -> Bool {
+        try pubkyring.verifyTypedContent(
+            appEd25519PubHex: appEd25519PubHex,
+            issuerPeeridHex: issuerPeeridHex,
+            certIdHex: certIdHex,
+            contentType: contentType,
+            payloadHex: payloadHex,
+            sigHex: sigHex
+        )
     }
 }
 
@@ -230,6 +309,102 @@ class PubkyNoiseModule: NSObject {
     ) {
         let result = NoiseFFI.isSealedBlob(json: json)
         resolve(result)
+    }
+    
+    /// Encrypt using Sealed Blob v2 with spec-compliant AAD construction
+    /// AAD is computed internally per PUBKY_CRYPTO_SPEC Section 7.5
+    @objc(sealedBlobEncryptWithContext:plaintextHex:ownerPeeridHex:canonicalPath:purpose:resolver:rejecter:)
+    func sealedBlobEncryptWithContext(
+        _ recipientPkHex: String,
+        plaintextHex: String,
+        ownerPeeridHex: String,
+        canonicalPath: String,
+        purpose: String?,
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let recipientPk = Data(hexString: recipientPkHex), recipientPk.count == 32 else {
+                reject("INVALID_RECIPIENT_PK", "Recipient public key must be 32 bytes hex string", nil)
+                return
+            }
+            
+            guard let ownerPeerid = Data(hexString: ownerPeeridHex), ownerPeerid.count == 32 else {
+                reject("INVALID_OWNER_PEERID", "Owner peerid must be 32 bytes hex string", nil)
+                return
+            }
+            
+            guard let plaintext = Data(hexString: plaintextHex) else {
+                reject("INVALID_PLAINTEXT", "Plaintext must be valid hex string", nil)
+                return
+            }
+            
+            do {
+                let envelope = try NoiseFFI.sealedBlobEncryptWithContext(
+                    recipientPk: recipientPk,
+                    plaintext: plaintext,
+                    ownerPeerid: ownerPeerid,
+                    canonicalPath: canonicalPath,
+                    purpose: purpose
+                )
+                resolve(envelope)
+            } catch {
+                reject("ENCRYPT_ERROR", "Failed to encrypt sealed blob: \(error)", error)
+            }
+        }
+    }
+    
+    /// Decrypt Sealed Blob v2 with spec-compliant AAD construction
+    /// AAD is computed internally per PUBKY_CRYPTO_SPEC Section 7.5
+    @objc(sealedBlobDecryptWithContext:envelopeJson:ownerPeeridHex:canonicalPath:resolver:rejecter:)
+    func sealedBlobDecryptWithContext(
+        _ recipientSkHex: String,
+        envelopeJson: String,
+        ownerPeeridHex: String,
+        canonicalPath: String,
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let recipientSk = Data(hexString: recipientSkHex), recipientSk.count == 32 else {
+                reject("INVALID_SECRET_KEY", "Recipient secret key must be 32 bytes hex string", nil)
+                return
+            }
+            
+            guard let ownerPeerid = Data(hexString: ownerPeeridHex), ownerPeerid.count == 32 else {
+                reject("INVALID_OWNER_PEERID", "Owner peerid must be 32 bytes hex string", nil)
+                return
+            }
+            
+            do {
+                let plaintext = try NoiseFFI.sealedBlobDecryptWithContext(
+                    recipientSk: recipientSk,
+                    envelopeJson: envelopeJson,
+                    ownerPeerid: ownerPeerid,
+                    canonicalPath: canonicalPath
+                )
+                resolve(plaintext.hexString)
+            } catch {
+                reject("DECRYPT_ERROR", "Failed to decrypt sealed blob: \(error)", error)
+            }
+        }
+    }
+    
+    /// Derive Ed25519 public key from secret key
+    @objc(ed25519PublicFromSecret:resolver:rejecter:)
+    func ed25519PublicFromSecret(
+        _ ed25519SecretHex: String,
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let publicKeyHex = try NoiseFFI.ed25519PublicFromSecret(ed25519SecretHex: ed25519SecretHex)
+                resolve(publicKeyHex)
+            } catch {
+                reject("DERIVATION_ERROR", "Failed to derive Ed25519 public key: \(error)", error)
+            }
+        }
     }
     
     /// Derive noise seed from Ed25519 secret key using HKDF-SHA256
@@ -718,6 +893,195 @@ class PubkyNoiseModule: NSObject {
             return .disconnected
         default:
             return .error
+        }
+    }
+    
+    // MARK: - Unified Key Delegation (UKD) APIs
+    
+    /// Generate a new Ed25519 keypair for use as an AppKey.
+    ///
+    /// - Returns: Promise resolving to { secretKey: string, publicKey: string } (both 64 hex chars)
+    @objc
+    func generateAppKeypair(_ resolve: @escaping RCTPromiseResolveBlock,
+                            rejecter reject: @escaping RCTPromiseRejectBlock) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let keypair = NoiseFFI.generateAppKeypair()
+            resolve([
+                "secretKey": keypair.secretKeyHex,
+                "publicKey": keypair.publicKeyHex
+            ])
+        }
+    }
+    
+    /// Issue an AppCert by signing with the root Ed25519 secret key.
+    ///
+    /// - Parameters:
+    ///   - rootSkHex: Root PKARR Ed25519 secret key as hex (64 chars)
+    ///   - appId: Application identifier (e.g., "pubky.app", "paykit")
+    ///   - appEd25519PubHex: Delegated signing key as hex (64 chars)
+    ///   - transportX25519PubHex: Delegated Noise static key as hex (64 chars)
+    ///   - inboxX25519PubHex: Delegated inbox encryption key as hex (64 chars)
+    ///   - deviceIdHex: Optional device ID as hex
+    ///   - scopes: Optional capability scopes
+    ///   - expiresAt: Optional expiration timestamp (Unix seconds)
+    /// - Returns: Promise resolving to { certBodyHex, sigHex, certIdHex }
+    @objc
+    func issueAppCert(_ rootSkHex: String,
+                      appId: String,
+                      appEd25519PubHex: String,
+                      transportX25519PubHex: String,
+                      inboxX25519PubHex: String,
+                      deviceIdHex: String?,
+                      scopes: [String]?,
+                      expiresAt: NSNumber?,
+                      resolver resolve: @escaping RCTPromiseResolveBlock,
+                      rejecter reject: @escaping RCTPromiseRejectBlock) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let expiresAtValue: UInt64? = expiresAt?.uint64Value
+                let result = try NoiseFFI.issueAppCert(
+                    rootSkHex: rootSkHex,
+                    appId: appId,
+                    appEd25519PubHex: appEd25519PubHex,
+                    transportX25519PubHex: transportX25519PubHex,
+                    inboxX25519PubHex: inboxX25519PubHex,
+                    deviceIdHex: deviceIdHex,
+                    scopes: scopes,
+                    expiresAt: expiresAtValue
+                )
+                resolve([
+                    "certBodyHex": result.certBodyHex,
+                    "sigHex": result.sigHex,
+                    "certIdHex": result.certIdHex
+                ])
+            } catch {
+                reject("CERT_ERROR", "Failed to issue AppCert: \(error.localizedDescription)", error)
+            }
+        }
+    }
+    
+    /// Verify an AppCert signature.
+    ///
+    /// - Parameters:
+    ///   - issuerPeeridHex: Root PKARR Ed25519 public key as hex (64 chars)
+    ///   - certBodyHex: Raw cert_body bytes as hex
+    ///   - sigHex: Ed25519 signature as hex (128 chars)
+    /// - Returns: Promise resolving to certIdHex if valid
+    @objc
+    func verifyAppCert(_ issuerPeeridHex: String,
+                       certBodyHex: String,
+                       sigHex: String,
+                       resolver resolve: @escaping RCTPromiseResolveBlock,
+                       rejecter reject: @escaping RCTPromiseRejectBlock) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let certIdHex = try NoiseFFI.verifyAppCert(
+                    issuerPeeridHex: issuerPeeridHex,
+                    certBodyHex: certBodyHex,
+                    sigHex: sigHex
+                )
+                resolve(certIdHex)
+            } catch {
+                reject("VERIFY_ERROR", "AppCert verification failed: \(error.localizedDescription)", error)
+            }
+        }
+    }
+    
+    /// Sign typed content with an AppKey per UKD spec.
+    ///
+    /// This is a TYPED signing function, not a generic "sign anything" API.
+    /// The contentType parameter constrains what is being signed.
+    ///
+    /// - Parameters:
+    ///   - appSkHex: AppKey Ed25519 secret key as hex (64 chars)
+    ///   - issuerPeeridHex: Root PKARR Ed25519 public key as hex (64 chars)
+    ///   - certIdHex: AppCert identifier as hex (32 chars)
+    ///   - contentType: ASCII label describing what is signed (e.g., "pubky.post")
+    ///   - payloadHex: Content payload as hex
+    /// - Returns: Promise resolving to 64-byte Ed25519 signature as hex (128 chars)
+    @objc
+    func signTypedContent(_ appSkHex: String,
+                          issuerPeeridHex: String,
+                          certIdHex: String,
+                          contentType: String,
+                          payloadHex: String,
+                          resolver resolve: @escaping RCTPromiseResolveBlock,
+                          rejecter reject: @escaping RCTPromiseRejectBlock) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let signatureHex = try NoiseFFI.signTypedContent(
+                    appSkHex: appSkHex,
+                    issuerPeeridHex: issuerPeeridHex,
+                    certIdHex: certIdHex,
+                    contentType: contentType,
+                    payloadHex: payloadHex
+                )
+                resolve(signatureHex)
+            } catch {
+                reject("SIGNING_ERROR", "Failed to sign typed content: \(error.localizedDescription)", error)
+            }
+        }
+    }
+    
+    /// Verify typed content signature.
+    ///
+    /// - Parameters:
+    ///   - appEd25519PubHex: AppKey Ed25519 public key as hex (64 chars)
+    ///   - issuerPeeridHex: Root PKARR Ed25519 public key as hex (64 chars)
+    ///   - certIdHex: AppCert identifier as hex (32 chars)
+    ///   - contentType: ASCII label describing what is signed
+    ///   - payloadHex: Content payload as hex
+    ///   - sigHex: Signature to verify as hex (128 chars)
+    /// - Returns: Promise resolving to true if valid
+    @objc
+    func verifyTypedContent(_ appEd25519PubHex: String,
+                            issuerPeeridHex: String,
+                            certIdHex: String,
+                            contentType: String,
+                            payloadHex: String,
+                            sigHex: String,
+                            resolver resolve: @escaping RCTPromiseResolveBlock,
+                            rejecter reject: @escaping RCTPromiseRejectBlock) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let isValid = try NoiseFFI.verifyTypedContent(
+                    appEd25519PubHex: appEd25519PubHex,
+                    issuerPeeridHex: issuerPeeridHex,
+                    certIdHex: certIdHex,
+                    contentType: contentType,
+                    payloadHex: payloadHex,
+                    sigHex: sigHex
+                )
+                resolve(isValid)
+            } catch {
+                reject("VERIFY_ERROR", "Failed to verify typed content: \(error.localizedDescription)", error)
+            }
+        }
+    }
+    
+    /// Compute the inbox_kid for a given inbox public key.
+    ///
+    /// inbox_kid = SHA256(inbox_pk)[0..16] (first 16 bytes)
+    ///
+    /// This is used for KeyBinding discovery per PUBKY_CRYPTO_SPEC v2.5.
+    ///
+    /// - Parameter inboxPkHex: Inbox X25519 public key as hex (64 chars / 32 bytes)
+    /// - Returns: Promise resolving to inbox_kid as hex (32 chars / 16 bytes)
+    @objc
+    func computeInboxKid(_ inboxPkHex: String,
+                         resolver resolve: @escaping RCTPromiseResolveBlock,
+                         rejecter reject: @escaping RCTPromiseRejectBlock) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let inboxPk = Data(hexString: inboxPkHex), inboxPk.count == 32 else {
+                reject("INVALID_INBOX_PK", "Inbox public key must be 32 bytes", nil)
+                return
+            }
+            
+            // SHA256(inbox_pk)[0..16]
+            let hash = SHA256.hash(data: inboxPk)
+            let hashData = Data(hash)
+            let kid = hashData.prefix(16)
+            resolve(kid.hexString)
         }
     }
     

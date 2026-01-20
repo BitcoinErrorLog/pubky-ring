@@ -66,6 +66,21 @@ export type NoiseConfigType = 'default' | 'batterySaver' | 'performance';
 export type ConnectionStatus = 'connected' | 'reconnecting' | 'disconnected' | 'error';
 
 // ============================================================================
+// Types - Unified Key Delegation (UKD)
+// ============================================================================
+
+export interface AppKeypairResult {
+	secretKey: string;
+	publicKey: string;
+}
+
+export interface AppCertResult {
+	certBodyHex: string;
+	sigHex: string;
+	certIdHex: string;
+}
+
+// ============================================================================
 // Availability Check
 // ============================================================================
 
@@ -503,6 +518,94 @@ export const isSealedBlob = async (json: string): Promise<boolean> => {
 };
 
 // ============================================================================
+// Sealed Blob v2 with Spec-Compliant AAD (PUBKY_CRYPTO_SPEC Section 7.5)
+// ============================================================================
+
+/**
+ * Encrypt using Sealed Blob v2 with spec-compliant AAD construction.
+ *
+ * This function computes AAD internally per PUBKY_CRYPTO_SPEC Section 7.5:
+ * aad = "pubky-envelope/v2:" || owner_peerid_bytes || canonical_path_bytes || header_bytes
+ *
+ * Use this instead of sealedBlobEncrypt for new code to ensure spec compliance.
+ *
+ * @param recipientPkHex - Recipient's X25519 public key as hex string (32 bytes)
+ * @param plaintextHex - Plaintext to encrypt as hex string
+ * @param ownerPeeridHex - Storage owner's Ed25519 public key as hex string (32 bytes)
+ * @param canonicalPath - Canonical storage path (e.g., "/pub/paykit.app/v0/handoff/{id}")
+ * @param purpose - Optional purpose hint ("handoff", "request", "proposal")
+ * @returns Promise resolving to JSON-encoded sealed blob v2 envelope
+ */
+export const sealedBlobEncryptWithContext = async (
+	recipientPkHex: string,
+	plaintextHex: string,
+	ownerPeeridHex: string,
+	canonicalPath: string,
+	purpose?: string | null
+): Promise<string> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.sealedBlobEncryptWithContext(
+		recipientPkHex,
+		plaintextHex,
+		ownerPeeridHex,
+		canonicalPath,
+		purpose
+	);
+};
+
+/**
+ * Decrypt Sealed Blob v2 with spec-compliant AAD construction.
+ *
+ * This function computes AAD internally per PUBKY_CRYPTO_SPEC Section 7.5.
+ *
+ * @param recipientSkHex - Recipient's X25519 secret key as hex string (32 bytes)
+ * @param envelopeJson - JSON-encoded sealed blob v2 envelope
+ * @param ownerPeeridHex - Storage owner's Ed25519 public key as hex string (32 bytes)
+ * @param canonicalPath - Canonical storage path (must match encryption)
+ * @returns Promise resolving to decrypted plaintext as hex string
+ */
+export const sealedBlobDecryptWithContext = async (
+	recipientSkHex: string,
+	envelopeJson: string,
+	ownerPeeridHex: string,
+	canonicalPath: string
+): Promise<string> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.sealedBlobDecryptWithContext(
+		recipientSkHex,
+		envelopeJson,
+		ownerPeeridHex,
+		canonicalPath
+	);
+};
+
+// ============================================================================
+// Ed25519 Key Derivation
+// ============================================================================
+
+/**
+ * Derive Ed25519 public key from secret key.
+ *
+ * Useful for obtaining the owner peerid (Ed25519 public key) needed
+ * for spec-compliant AAD construction.
+ *
+ * @param ed25519SecretHex - Ed25519 secret key as hex string (64 chars / 32 bytes)
+ * @returns Promise resolving to Ed25519 public key as hex string (64 chars)
+ */
+export const ed25519PublicFromSecret = async (
+	ed25519SecretHex: string
+): Promise<string> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.ed25519PublicFromSecret(ed25519SecretHex);
+};
+
+// ============================================================================
 // Ed25519 Signing Functions
 // ============================================================================
 
@@ -547,6 +650,169 @@ export const ed25519Verify = async (
 };
 
 // ============================================================================
+// Unified Key Delegation (UKD) APIs - PUBKY_UNIFIED_KEY_DELEGATION_SPEC v0.2
+// ============================================================================
+
+/**
+ * Generate a new Ed25519 keypair for use as an AppKey.
+ *
+ * @returns Promise resolving to keypair with secretKey and publicKey as hex strings (64 chars each)
+ */
+export const generateAppKeypair = async (): Promise<AppKeypairResult> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.generateAppKeypair();
+};
+
+/**
+ * Issue an AppCert by signing with the root Ed25519 secret key.
+ *
+ * Creates a delegated certificate that allows an app-specific key to sign
+ * on behalf of the root identity within specified scopes.
+ *
+ * @param rootSkHex - Root PKARR Ed25519 secret key as hex (64 chars)
+ * @param appId - Application identifier (e.g., "pubky.app", "paykit")
+ * @param appEd25519PubHex - Delegated signing key as hex (64 chars)
+ * @param transportX25519PubHex - Delegated Noise static key as hex (64 chars)
+ * @param inboxX25519PubHex - Delegated inbox encryption key as hex (64 chars)
+ * @param deviceIdHex - Optional device ID as hex
+ * @param scopes - Optional capability scopes (e.g., ["write:posts", "read:profile"])
+ * @param expiresAt - Optional expiration timestamp (Unix seconds)
+ * @returns Promise resolving to { certBodyHex, sigHex, certIdHex }
+ */
+export const issueAppCert = async (
+	rootSkHex: string,
+	appId: string,
+	appEd25519PubHex: string,
+	transportX25519PubHex: string,
+	inboxX25519PubHex: string,
+	deviceIdHex?: string | null,
+	scopes?: string[] | null,
+	expiresAt?: number | null
+): Promise<AppCertResult> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.issueAppCert(
+		rootSkHex,
+		appId,
+		appEd25519PubHex,
+		transportX25519PubHex,
+		inboxX25519PubHex,
+		deviceIdHex,
+		scopes,
+		expiresAt
+	);
+};
+
+/**
+ * Verify an AppCert signature.
+ *
+ * Validates that the certificate was issued by the claimed root identity.
+ *
+ * @param issuerPeeridHex - Root PKARR Ed25519 public key as hex (64 chars)
+ * @param certBodyHex - Raw cert_body bytes as hex
+ * @param sigHex - Ed25519 signature as hex (128 chars)
+ * @returns Promise resolving to certIdHex if valid
+ */
+export const verifyAppCert = async (
+	issuerPeeridHex: string,
+	certBodyHex: string,
+	sigHex: string
+): Promise<string> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.verifyAppCert(issuerPeeridHex, certBodyHex, sigHex);
+};
+
+/**
+ * Sign typed content with an AppKey per UKD spec.
+ *
+ * This is a TYPED signing function that creates domain-separated signatures.
+ * The contentType parameter constrains what is being signed, preventing
+ * cross-domain signature reuse attacks.
+ *
+ * @param appSkHex - AppKey Ed25519 secret key as hex (64 chars)
+ * @param issuerPeeridHex - Root PKARR Ed25519 public key as hex (64 chars)
+ * @param certIdHex - AppCert identifier as hex (32 chars)
+ * @param contentType - ASCII label describing what is signed (e.g., "pubky.post", "paykit.ack")
+ * @param payloadHex - Content payload as hex
+ * @returns Promise resolving to 64-byte Ed25519 signature as hex (128 chars)
+ */
+export const signTypedContent = async (
+	appSkHex: string,
+	issuerPeeridHex: string,
+	certIdHex: string,
+	contentType: string,
+	payloadHex: string
+): Promise<string> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.signTypedContent(
+		appSkHex,
+		issuerPeeridHex,
+		certIdHex,
+		contentType,
+		payloadHex
+	);
+};
+
+/**
+ * Verify typed content signature.
+ *
+ * Validates that content was signed by an AppKey with the claimed certificate.
+ *
+ * @param appEd25519PubHex - AppKey Ed25519 public key as hex (64 chars)
+ * @param issuerPeeridHex - Root PKARR Ed25519 public key as hex (64 chars)
+ * @param certIdHex - AppCert identifier as hex (32 chars)
+ * @param contentType - ASCII label describing what is signed
+ * @param payloadHex - Content payload as hex
+ * @param sigHex - Signature to verify as hex (128 chars)
+ * @returns Promise resolving to true if valid
+ */
+export const verifyTypedContent = async (
+	appEd25519PubHex: string,
+	issuerPeeridHex: string,
+	certIdHex: string,
+	contentType: string,
+	payloadHex: string,
+	sigHex: string
+): Promise<boolean> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.verifyTypedContent(
+		appEd25519PubHex,
+		issuerPeeridHex,
+		certIdHex,
+		contentType,
+		payloadHex,
+		sigHex
+	);
+};
+
+/**
+ * Compute the inbox_kid for a given inbox public key.
+ *
+ * inbox_kid = SHA256(inbox_pk)[0..16] (first 16 bytes)
+ *
+ * This is used for KeyBinding discovery per PUBKY_CRYPTO_SPEC v2.5.
+ * The inbox_kid serves as a short identifier for inbox keys in PKARR records.
+ *
+ * @param inboxPkHex - Inbox X25519 public key as hex (64 chars / 32 bytes)
+ * @returns Promise resolving to inbox_kid as hex (32 chars / 16 bytes)
+ */
+export const computeInboxKid = async (inboxPkHex: string): Promise<string> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.computeInboxKid(inboxPkHex);
+};
+
+// ============================================================================
 // Default Export
 // ============================================================================
 
@@ -563,9 +829,21 @@ export default {
 	sealedBlobEncrypt,
 	sealedBlobDecrypt,
 	isSealedBlob,
+	// Sealed Blob v2 with Spec-Compliant AAD (PUBKY_CRYPTO_SPEC Section 7.5)
+	sealedBlobEncryptWithContext,
+	sealedBlobDecryptWithContext,
+	// Ed25519 Key Derivation
+	ed25519PublicFromSecret,
 	// Ed25519 Signing
 	ed25519Sign,
 	ed25519Verify,
+	// Unified Key Delegation (UKD) - PUBKY_UNIFIED_KEY_DELEGATION_SPEC v0.2
+	generateAppKeypair,
+	issueAppCert,
+	verifyAppCert,
+	signTypedContent,
+	verifyTypedContent,
+	computeInboxKid,
 	// Manager Lifecycle
 	createClientManager,
 	createServerManager,

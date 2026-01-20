@@ -20,7 +20,13 @@ import com.pubky.noise.x25519GenerateKeypair
 import com.pubky.noise.x25519PublicFromSecret
 import com.pubky.noise.ed25519Sign
 import com.pubky.noise.ed25519Verify
+import com.pubky.noise.generateAppKeypair
+import com.pubky.noise.issueAppCert
+import com.pubky.noise.verifyAppCert
+import com.pubky.noise.signTypedContent
+import com.pubky.noise.verifyTypedContent
 import kotlinx.coroutines.CoroutineScope
+import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
@@ -205,6 +211,124 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
             promise.resolve(result)
         } catch (e: Exception) {
             promise.reject("CHECK_ERROR", "Failed to check sealed blob: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Encrypt using Sealed Blob v2 with spec-compliant AAD construction.
+     * 
+     * This function computes AAD internally per PUBKY_CRYPTO_SPEC Section 7.5:
+     * aad = "pubky-envelope/v2:" || owner_peerid_bytes || canonical_path_bytes || header_bytes
+     *
+     * @param recipientPkHex Recipient's X25519 public key as hex (64 chars)
+     * @param plaintextHex Plaintext to encrypt as hex
+     * @param ownerPeeridHex Storage owner's Ed25519 public key as hex (64 chars)
+     * @param canonicalPath Canonical storage path (e.g., "/pub/paykit.app/v0/handoff/{id}")
+     * @param purpose Optional purpose hint ("handoff", "request", "proposal")
+     * @returns Promise resolving to JSON-encoded sealed blob v2 envelope
+     */
+    @ReactMethod
+    fun sealedBlobEncryptWithContext(
+        recipientPkHex: String,
+        plaintextHex: String,
+        ownerPeeridHex: String,
+        canonicalPath: String,
+        purpose: String?,
+        promise: Promise,
+    ) {
+        scope.launch {
+            try {
+                val recipientPk = hexStringToByteArray(recipientPkHex)
+                if (recipientPk.size != 32) {
+                    promise.reject("INVALID_RECIPIENT_PK", "Recipient public key must be 32 bytes")
+                    return@launch
+                }
+
+                val ownerPeerid = hexStringToByteArray(ownerPeeridHex)
+                if (ownerPeerid.size != 32) {
+                    promise.reject("INVALID_OWNER_PEERID", "Owner peerid must be 32 bytes")
+                    return@launch
+                }
+
+                val plaintext = hexStringToByteArray(plaintextHex)
+                val envelope = com.pubky.noise.sealedBlobEncryptWithContext(
+                    recipientPk,
+                    plaintext,
+                    ownerPeerid,
+                    canonicalPath,
+                    purpose,
+                )
+                promise.resolve(envelope)
+            } catch (e: Exception) {
+                promise.reject("ENCRYPT_ERROR", "Failed to encrypt sealed blob: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Decrypt Sealed Blob v2 with spec-compliant AAD construction.
+     *
+     * This function computes AAD internally per PUBKY_CRYPTO_SPEC Section 7.5.
+     *
+     * @param recipientSkHex Recipient's X25519 secret key as hex (64 chars)
+     * @param envelopeJson JSON-encoded sealed blob v2 envelope
+     * @param ownerPeeridHex Storage owner's Ed25519 public key as hex (64 chars)
+     * @param canonicalPath Canonical storage path (must match encryption)
+     * @returns Promise resolving to decrypted plaintext as hex
+     */
+    @ReactMethod
+    fun sealedBlobDecryptWithContext(
+        recipientSkHex: String,
+        envelopeJson: String,
+        ownerPeeridHex: String,
+        canonicalPath: String,
+        promise: Promise,
+    ) {
+        scope.launch {
+            try {
+                val recipientSk = hexStringToByteArray(recipientSkHex)
+                if (recipientSk.size != 32) {
+                    promise.reject("INVALID_SECRET_KEY", "Recipient secret key must be 32 bytes")
+                    return@launch
+                }
+
+                val ownerPeerid = hexStringToByteArray(ownerPeeridHex)
+                if (ownerPeerid.size != 32) {
+                    promise.reject("INVALID_OWNER_PEERID", "Owner peerid must be 32 bytes")
+                    return@launch
+                }
+
+                val plaintext = com.pubky.noise.sealedBlobDecryptWithContext(
+                    recipientSk,
+                    envelopeJson,
+                    ownerPeerid,
+                    canonicalPath,
+                )
+                promise.resolve(byteArrayToHexString(plaintext))
+            } catch (e: Exception) {
+                promise.reject("DECRYPT_ERROR", "Failed to decrypt sealed blob: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Derive Ed25519 public key from secret key
+     *
+     * @param ed25519SecretHex Ed25519 secret key as hex string (64 chars / 32 bytes)
+     * @returns Promise resolving to Ed25519 public key as hex string (64 chars)
+     */
+    @ReactMethod
+    fun ed25519PublicFromSecret(
+        ed25519SecretHex: String,
+        promise: Promise,
+    ) {
+        scope.launch {
+            try {
+                val publicKeyHex = com.pubky.noise.ed25519PublicFromSecret(ed25519SecretHex)
+                promise.resolve(publicKeyHex)
+            } catch (e: Exception) {
+                promise.reject("DERIVATION_ERROR", "Failed to derive Ed25519 public key: ${e.message}", e)
+            }
         }
     }
 
@@ -736,6 +860,214 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
     fun destroyManager(managerId: String, promise: Promise) {
         managers.remove(managerId)
         promise.resolve(true)
+    }
+
+    // MARK: - Unified Key Delegation (UKD) APIs
+
+    /**
+     * Generate a new Ed25519 keypair for use as an AppKey.
+     *
+     * @returns Promise resolving to { secretKey: string, publicKey: string } (both 64 hex chars)
+     */
+    @ReactMethod
+    fun generateAppKeypair(promise: Promise) {
+        scope.launch {
+            try {
+                val keypair = generateAppKeypair()
+                val result = Arguments.createMap().apply {
+                    putString("secretKey", keypair.secretKeyHex)
+                    putString("publicKey", keypair.publicKeyHex)
+                }
+                promise.resolve(result)
+            } catch (e: Exception) {
+                promise.reject("KEYGEN_ERROR", "Failed to generate app keypair: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Issue an AppCert by signing with the root Ed25519 secret key.
+     *
+     * @param rootSkHex Root PKARR Ed25519 secret key as hex (64 chars)
+     * @param appId Application identifier (e.g., "pubky.app", "paykit")
+     * @param appEd25519PubHex Delegated signing key as hex (64 chars)
+     * @param transportX25519PubHex Delegated Noise static key as hex (64 chars)
+     * @param inboxX25519PubHex Delegated inbox encryption key as hex (64 chars)
+     * @param deviceIdHex Optional device ID as hex
+     * @param scopes Optional capability scopes
+     * @param expiresAt Optional expiration timestamp (Unix seconds)
+     * @returns Promise resolving to { certBodyHex, sigHex, certIdHex }
+     */
+    @ReactMethod
+    fun issueAppCert(
+        rootSkHex: String,
+        appId: String,
+        appEd25519PubHex: String,
+        transportX25519PubHex: String,
+        inboxX25519PubHex: String,
+        deviceIdHex: String?,
+        scopes: com.facebook.react.bridge.ReadableArray?,
+        expiresAt: Double?,
+        promise: Promise,
+    ) {
+        scope.launch {
+            try {
+                val scopesList: List<String>? = scopes?.let { arr ->
+                    (0 until arr.size()).mapNotNull { arr.getString(it) }
+                }
+                val expiresAtLong: ULong? = expiresAt?.takeIf { it > 0 }?.toLong()?.toULong()
+
+                val certResult = issueAppCert(
+                    rootSkHex,
+                    appId,
+                    appEd25519PubHex,
+                    transportX25519PubHex,
+                    inboxX25519PubHex,
+                    deviceIdHex,
+                    scopesList,
+                    expiresAtLong,
+                )
+                val result = Arguments.createMap().apply {
+                    putString("certBodyHex", certResult.certBodyHex)
+                    putString("sigHex", certResult.sigHex)
+                    putString("certIdHex", certResult.certIdHex)
+                }
+                promise.resolve(result)
+            } catch (e: Exception) {
+                promise.reject("CERT_ERROR", "Failed to issue AppCert: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Verify an AppCert signature.
+     *
+     * @param issuerPeeridHex Root PKARR Ed25519 public key as hex (64 chars)
+     * @param certBodyHex Raw cert_body bytes as hex
+     * @param sigHex Ed25519 signature as hex (128 chars)
+     * @returns Promise resolving to certIdHex if valid
+     */
+    @ReactMethod
+    fun verifyAppCert(
+        issuerPeeridHex: String,
+        certBodyHex: String,
+        sigHex: String,
+        promise: Promise,
+    ) {
+        scope.launch {
+            try {
+                val certIdHex = verifyAppCert(issuerPeeridHex, certBodyHex, sigHex)
+                promise.resolve(certIdHex)
+            } catch (e: Exception) {
+                promise.reject("VERIFY_ERROR", "AppCert verification failed: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Sign typed content with an AppKey per UKD spec.
+     *
+     * This is a TYPED signing function, not a generic "sign anything" API.
+     * The contentType parameter constrains what is being signed.
+     *
+     * @param appSkHex AppKey Ed25519 secret key as hex (64 chars)
+     * @param issuerPeeridHex Root PKARR Ed25519 public key as hex (64 chars)
+     * @param certIdHex AppCert identifier as hex (32 chars)
+     * @param contentType ASCII label describing what is signed (e.g., "pubky.post")
+     * @param payloadHex Content payload as hex
+     * @returns Promise resolving to 64-byte Ed25519 signature as hex (128 chars)
+     */
+    @ReactMethod
+    fun signTypedContent(
+        appSkHex: String,
+        issuerPeeridHex: String,
+        certIdHex: String,
+        contentType: String,
+        payloadHex: String,
+        promise: Promise,
+    ) {
+        scope.launch {
+            try {
+                val signatureHex = signTypedContent(
+                    appSkHex,
+                    issuerPeeridHex,
+                    certIdHex,
+                    contentType,
+                    payloadHex,
+                )
+                promise.resolve(signatureHex)
+            } catch (e: Exception) {
+                promise.reject("SIGNING_ERROR", "Failed to sign typed content: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Verify typed content signature.
+     *
+     * @param appEd25519PubHex AppKey Ed25519 public key as hex (64 chars)
+     * @param issuerPeeridHex Root PKARR Ed25519 public key as hex (64 chars)
+     * @param certIdHex AppCert identifier as hex (32 chars)
+     * @param contentType ASCII label describing what is signed
+     * @param payloadHex Content payload as hex
+     * @param sigHex Signature to verify as hex (128 chars)
+     * @returns Promise resolving to true if valid
+     */
+    @ReactMethod
+    fun verifyTypedContent(
+        appEd25519PubHex: String,
+        issuerPeeridHex: String,
+        certIdHex: String,
+        contentType: String,
+        payloadHex: String,
+        sigHex: String,
+        promise: Promise,
+    ) {
+        scope.launch {
+            try {
+                val isValid = verifyTypedContent(
+                    appEd25519PubHex,
+                    issuerPeeridHex,
+                    certIdHex,
+                    contentType,
+                    payloadHex,
+                    sigHex,
+                )
+                promise.resolve(isValid)
+            } catch (e: Exception) {
+                promise.reject("VERIFY_ERROR", "Failed to verify typed content: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Compute the inbox_kid for a given inbox public key.
+     *
+     * inbox_kid = SHA256(inbox_pk)[0..16] (first 16 bytes)
+     *
+     * This is used for KeyBinding discovery per PUBKY_CRYPTO_SPEC v2.5.
+     *
+     * @param inboxPkHex Inbox X25519 public key as hex (64 chars / 32 bytes)
+     * @returns Promise resolving to inbox_kid as hex (32 chars / 16 bytes)
+     */
+    @ReactMethod
+    fun computeInboxKid(inboxPkHex: String, promise: Promise) {
+        scope.launch {
+            try {
+                val inboxPk = hexStringToByteArray(inboxPkHex)
+                if (inboxPk.size != 32) {
+                    promise.reject("INVALID_INBOX_PK", "Inbox public key must be 32 bytes")
+                    return@launch
+                }
+
+                val digest = MessageDigest.getInstance("SHA-256")
+                val hash = digest.digest(inboxPk)
+                val kid = hash.copyOfRange(0, 16)
+                promise.resolve(byteArrayToHexString(kid))
+            } catch (e: Exception) {
+                promise.reject("KID_ERROR", "Failed to compute inbox_kid: ${e.message}", e)
+            }
+        }
     }
 
     // MARK: - Private Helpers

@@ -147,4 +147,46 @@ RCT_EXTERN_METHOD(restoreSessionState:(NSString *)managerId
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+// Unified Key Delegation (UKD) APIs
+RCT_EXTERN_METHOD(generateAppKeypair:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(issueAppCert:(NSString *)rootSkHex
+                  appId:(NSString *)appId
+                  appEd25519PubHex:(NSString *)appEd25519PubHex
+                  transportX25519PubHex:(NSString *)transportX25519PubHex
+                  inboxX25519PubHex:(NSString *)inboxX25519PubHex
+                  deviceIdHex:(NSString *)deviceIdHex
+                  scopes:(NSArray<NSString *> *)scopes
+                  expiresAt:(NSNumber *)expiresAt
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(verifyAppCert:(NSString *)issuerPeeridHex
+                  certBodyHex:(NSString *)certBodyHex
+                  sigHex:(NSString *)sigHex
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(signTypedContent:(NSString *)appSkHex
+                  issuerPeeridHex:(NSString *)issuerPeeridHex
+                  certIdHex:(NSString *)certIdHex
+                  contentType:(NSString *)contentType
+                  payloadHex:(NSString *)payloadHex
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(verifyTypedContent:(NSString *)appEd25519PubHex
+                  issuerPeeridHex:(NSString *)issuerPeeridHex
+                  certIdHex:(NSString *)certIdHex
+                  contentType:(NSString *)contentType
+                  payloadHex:(NSString *)payloadHex
+                  sigHex:(NSString *)sigHex
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(computeInboxKid:(NSString *)inboxPkHex
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 @end
