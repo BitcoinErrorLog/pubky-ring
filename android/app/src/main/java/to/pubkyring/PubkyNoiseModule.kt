@@ -25,8 +25,16 @@ import com.pubky.noise.issueAppCert
 import com.pubky.noise.verifyAppCert
 import com.pubky.noise.signTypedContent
 import com.pubky.noise.verifyTypedContent
+import com.pubky.noise.sb2IsSb2
+import com.pubky.noise.sb2Encrypt
+import com.pubky.noise.sb2Decrypt
+import com.pubky.noise.sb2Sign
+import com.pubky.noise.sb2VerifySignature
+import com.pubky.noise.sb2DecodeHeader
+import com.pubky.noise.sb2GenerateContextId
 import kotlinx.coroutines.CoroutineScope
 import java.security.MessageDigest
+import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
@@ -1066,6 +1074,283 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
                 promise.resolve(byteArrayToHexString(kid))
             } catch (e: Exception) {
                 promise.reject("KID_ERROR", "Failed to compute inbox_kid: ${e.message}", e)
+            }
+        }
+    }
+
+    // MARK: - SB2 Binary Wire Format (PUBKY_CRYPTO_SPEC v2.5 Section 7.2)
+
+    /**
+     * Check if data starts with SB2 magic bytes ("SB2").
+     */
+    @ReactMethod
+    fun sb2IsSb2(dataBase64: String, promise: Promise) {
+        scope.launch {
+            try {
+                val data = Base64.decode(dataBase64, Base64.DEFAULT)
+                val isSb2 = sb2IsSb2(data.toList())
+                promise.resolve(isSb2)
+            } catch (e: Exception) {
+                promise.reject("SB2_ERROR", "Failed to check SB2 format: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Encrypt plaintext to SB2 binary format.
+     */
+    @ReactMethod
+    fun sb2Encrypt(
+        recipientInboxPkHex: String,
+        plaintextHex: String,
+        contextIdHex: String,
+        msgId: String?,
+        purpose: String?,
+        ownerPeeridHex: String,
+        senderPeeridHex: String,
+        recipientPeeridHex: String,
+        canonicalPath: String,
+        createdAt: Double?,
+        expiresAt: Double?,
+        certIdHex: String?,
+        promise: Promise,
+    ) {
+        scope.launch {
+            try {
+                val recipientInboxPk = hexStringToByteArray(recipientInboxPkHex)
+                if (recipientInboxPk.size != 32) {
+                    promise.reject("INVALID_RECIPIENT_PK", "Recipient inbox public key must be 32 bytes")
+                    return@launch
+                }
+
+                val plaintext = hexStringToByteArray(plaintextHex)
+                val contextId = hexStringToByteArray(contextIdHex)
+                if (contextId.size != 32) {
+                    promise.reject("INVALID_CONTEXT_ID", "Context ID must be 32 bytes")
+                    return@launch
+                }
+
+                val ownerPeerid = hexStringToByteArray(ownerPeeridHex)
+                if (ownerPeerid.size != 32) {
+                    promise.reject("INVALID_OWNER_PEERID", "Owner peerid must be 32 bytes")
+                    return@launch
+                }
+
+                val senderPeerid = hexStringToByteArray(senderPeeridHex)
+                if (senderPeerid.size != 32) {
+                    promise.reject("INVALID_SENDER_PEERID", "Sender peerid must be 32 bytes")
+                    return@launch
+                }
+
+                val recipientPeerid = hexStringToByteArray(recipientPeeridHex)
+                if (recipientPeerid.size != 32) {
+                    promise.reject("INVALID_RECIPIENT_PEERID", "Recipient peerid must be 32 bytes")
+                    return@launch
+                }
+
+                val certId: ByteArray? = certIdHex?.let {
+                    val arr = hexStringToByteArray(it)
+                    if (arr.size != 16) {
+                        promise.reject("INVALID_CERT_ID", "Cert ID must be 16 bytes")
+                        return@launch
+                    }
+                    arr
+                }
+
+                val envelope = sb2Encrypt(
+                    recipientInboxPk.toList(),
+                    plaintext.toList(),
+                    contextId.toList(),
+                    msgId,
+                    purpose,
+                    ownerPeerid.toList(),
+                    senderPeerid.toList(),
+                    recipientPeerid.toList(),
+                    canonicalPath,
+                    createdAt?.toLong()?.toULong(),
+                    expiresAt?.toLong()?.toULong(),
+                    certId?.toList(),
+                )
+                val base64Envelope = Base64.encodeToString(envelope.toByteArray(), Base64.NO_WRAP)
+                promise.resolve(base64Envelope)
+            } catch (e: Exception) {
+                promise.reject("SB2_ENCRYPT_ERROR", "Failed to encrypt SB2: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Decrypt an SB2 binary envelope.
+     */
+    @ReactMethod
+    fun sb2Decrypt(
+        envelopeBase64: String,
+        recipientInboxSkHex: String,
+        ownerPeeridHex: String,
+        canonicalPath: String,
+        promise: Promise,
+    ) {
+        scope.launch {
+            try {
+                val envelope = Base64.decode(envelopeBase64, Base64.DEFAULT)
+                val recipientInboxSk = hexStringToByteArray(recipientInboxSkHex)
+                if (recipientInboxSk.size != 32) {
+                    promise.reject("INVALID_SECRET_KEY", "Recipient inbox secret key must be 32 bytes")
+                    return@launch
+                }
+
+                val ownerPeerid = hexStringToByteArray(ownerPeeridHex)
+                if (ownerPeerid.size != 32) {
+                    promise.reject("INVALID_OWNER_PEERID", "Owner peerid must be 32 bytes")
+                    return@launch
+                }
+
+                val result = sb2Decrypt(
+                    envelope.toList(),
+                    recipientInboxSk.toList(),
+                    ownerPeerid.toList(),
+                    canonicalPath,
+                )
+
+                val headerMap = Arguments.createMap().apply {
+                    putString("contextIdHex", result.header.contextIdHex)
+                    result.header.createdAt?.let { putDouble("createdAt", it.toDouble()) } ?: putNull("createdAt")
+                    result.header.expiresAt?.let { putDouble("expiresAt", it.toDouble()) } ?: putNull("expiresAt")
+                    putString("inboxKidHex", result.header.inboxKidHex)
+                    result.header.msgId?.let { putString("msgId", it) } ?: putNull("msgId")
+                    putString("nonceHex", result.header.nonceHex)
+                    result.header.purpose?.let { putString("purpose", it) } ?: putNull("purpose")
+                    putString("recipientPeeridHex", result.header.recipientPeeridHex)
+                    putString("senderEphemeralPubHex", result.header.senderEphemeralPubHex)
+                    putString("senderPeeridHex", result.header.senderPeeridHex)
+                    result.header.sigHex?.let { putString("sigHex", it) } ?: putNull("sigHex")
+                    result.header.certIdHex?.let { putString("certIdHex", it) } ?: putNull("certIdHex")
+                }
+
+                val responseMap = Arguments.createMap().apply {
+                    putMap("header", headerMap)
+                    putString("plaintext", byteArrayToHexString(result.plaintext.toByteArray()))
+                }
+                promise.resolve(responseMap)
+            } catch (e: Exception) {
+                promise.reject("SB2_DECRYPT_ERROR", "Failed to decrypt SB2: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Sign an SB2 envelope with sender's Ed25519 private key.
+     */
+    @ReactMethod
+    fun sb2Sign(
+        envelopeBase64: String,
+        senderEd25519SkHex: String,
+        ownerPeeridHex: String,
+        canonicalPath: String,
+        promise: Promise,
+    ) {
+        scope.launch {
+            try {
+                val envelope = Base64.decode(envelopeBase64, Base64.DEFAULT)
+                val senderSk = hexStringToByteArray(senderEd25519SkHex)
+                if (senderSk.size != 32) {
+                    promise.reject("INVALID_SECRET_KEY", "Sender Ed25519 secret key must be 32 bytes")
+                    return@launch
+                }
+
+                val ownerPeerid = hexStringToByteArray(ownerPeeridHex)
+                if (ownerPeerid.size != 32) {
+                    promise.reject("INVALID_OWNER_PEERID", "Owner peerid must be 32 bytes")
+                    return@launch
+                }
+
+                val signedEnvelope = sb2Sign(
+                    envelope.toList(),
+                    senderSk.toList(),
+                    ownerPeerid.toList(),
+                    canonicalPath,
+                )
+                val base64Envelope = Base64.encodeToString(signedEnvelope.toByteArray(), Base64.NO_WRAP)
+                promise.resolve(base64Envelope)
+            } catch (e: Exception) {
+                promise.reject("SB2_SIGN_ERROR", "Failed to sign SB2: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Verify the signature on an SB2 envelope.
+     */
+    @ReactMethod
+    fun sb2VerifySignature(
+        envelopeBase64: String,
+        ownerPeeridHex: String,
+        canonicalPath: String,
+        promise: Promise,
+    ) {
+        scope.launch {
+            try {
+                val envelope = Base64.decode(envelopeBase64, Base64.DEFAULT)
+                val ownerPeerid = hexStringToByteArray(ownerPeeridHex)
+                if (ownerPeerid.size != 32) {
+                    promise.reject("INVALID_OWNER_PEERID", "Owner peerid must be 32 bytes")
+                    return@launch
+                }
+
+                val isValid = sb2VerifySignature(
+                    envelope.toList(),
+                    ownerPeerid.toList(),
+                    canonicalPath,
+                )
+                promise.resolve(isValid)
+            } catch (e: Exception) {
+                promise.reject("SB2_VERIFY_ERROR", "Failed to verify SB2 signature: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Decode an SB2 envelope and return its header without decrypting.
+     */
+    @ReactMethod
+    fun sb2DecodeHeader(envelopeBase64: String, promise: Promise) {
+        scope.launch {
+            try {
+                val envelope = Base64.decode(envelopeBase64, Base64.DEFAULT)
+                val header = sb2DecodeHeader(envelope.toList())
+
+                val headerMap = Arguments.createMap().apply {
+                    putString("contextIdHex", header.contextIdHex)
+                    header.createdAt?.let { putDouble("createdAt", it.toDouble()) } ?: putNull("createdAt")
+                    header.expiresAt?.let { putDouble("expiresAt", it.toDouble()) } ?: putNull("expiresAt")
+                    putString("inboxKidHex", header.inboxKidHex)
+                    header.msgId?.let { putString("msgId", it) } ?: putNull("msgId")
+                    putString("nonceHex", header.nonceHex)
+                    header.purpose?.let { putString("purpose", it) } ?: putNull("purpose")
+                    putString("recipientPeeridHex", header.recipientPeeridHex)
+                    putString("senderEphemeralPubHex", header.senderEphemeralPubHex)
+                    putString("senderPeeridHex", header.senderPeeridHex)
+                    header.sigHex?.let { putString("sigHex", it) } ?: putNull("sigHex")
+                    header.certIdHex?.let { putString("certIdHex", it) } ?: putNull("certIdHex")
+                }
+                promise.resolve(headerMap)
+            } catch (e: Exception) {
+                promise.reject("SB2_DECODE_ERROR", "Failed to decode SB2 header: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Generate a random 32-byte context ID for new conversation threads.
+     */
+    @ReactMethod
+    fun sb2GenerateContextId(promise: Promise) {
+        scope.launch {
+            try {
+                val contextId = sb2GenerateContextId()
+                promise.resolve(byteArrayToHexString(contextId.toByteArray()))
+            } catch (e: Exception) {
+                promise.reject("SB2_CONTEXT_ERROR", "Failed to generate context ID: ${e.message}", e)
             }
         }
     }

@@ -123,6 +123,90 @@ private enum NoiseFFI {
             sigHex: sigHex
         )
     }
+    
+    // MARK: - SB2 Binary Wire Format
+    
+    static func sb2IsSb2(data: Data) -> Bool {
+        pubkyring.sb2IsSb2(data: data)
+    }
+    
+    static func sb2Encrypt(
+        recipientInboxPk: Data,
+        plaintext: Data,
+        contextId: Data,
+        msgId: String?,
+        purpose: String?,
+        ownerPeerid: Data,
+        senderPeerid: Data,
+        recipientPeerid: Data,
+        canonicalPath: String,
+        createdAt: UInt64?,
+        expiresAt: UInt64?,
+        certId: Data?
+    ) throws -> Data {
+        try pubkyring.sb2Encrypt(
+            recipientInboxPk: recipientInboxPk,
+            plaintext: plaintext,
+            contextId: contextId,
+            msgId: msgId,
+            purpose: purpose,
+            ownerPeerid: ownerPeerid,
+            senderPeerid: senderPeerid,
+            recipientPeerid: recipientPeerid,
+            canonicalPath: canonicalPath,
+            createdAt: createdAt,
+            expiresAt: expiresAt,
+            certId: certId
+        )
+    }
+    
+    static func sb2Decrypt(
+        envelopeBytes: Data,
+        recipientInboxSk: Data,
+        ownerPeerid: Data,
+        canonicalPath: String
+    ) throws -> FfiSb2DecryptResult {
+        try pubkyring.sb2Decrypt(
+            envelopeBytes: envelopeBytes,
+            recipientInboxSk: recipientInboxSk,
+            ownerPeerid: ownerPeerid,
+            canonicalPath: canonicalPath
+        )
+    }
+    
+    static func sb2Sign(
+        envelopeBytes: Data,
+        senderEd25519Sk: Data,
+        ownerPeerid: Data,
+        canonicalPath: String
+    ) throws -> Data {
+        try pubkyring.sb2Sign(
+            envelopeBytes: envelopeBytes,
+            senderEd25519Sk: senderEd25519Sk,
+            ownerPeerid: ownerPeerid,
+            canonicalPath: canonicalPath
+        )
+    }
+    
+    static func sb2VerifySignature(
+        envelopeBytes: Data,
+        ownerPeerid: Data,
+        canonicalPath: String
+    ) throws -> Bool {
+        try pubkyring.sb2VerifySignature(
+            envelopeBytes: envelopeBytes,
+            ownerPeerid: ownerPeerid,
+            canonicalPath: canonicalPath
+        )
+    }
+    
+    static func sb2DecodeHeader(envelopeBytes: Data) throws -> FfiSb2Header {
+        try pubkyring.sb2DecodeHeader(envelopeBytes: envelopeBytes)
+    }
+    
+    static func sb2GenerateContextId() -> Data {
+        pubkyring.sb2GenerateContextId()
+    }
 }
 
 @objc(PubkyNoiseModule)
@@ -1083,6 +1167,272 @@ class PubkyNoiseModule: NSObject {
             let kid = hashData.prefix(16)
             resolve(kid.hexString)
         }
+    }
+    
+    // MARK: - SB2 Binary Wire Format (PUBKY_CRYPTO_SPEC v2.5 Section 7.2)
+    
+    /// Check if data starts with SB2 magic bytes ("SB2")
+    @objc(sb2IsSb2:resolver:rejecter:)
+    func sb2IsSb2(
+        _ dataBase64: String,
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard let data = Data(base64Encoded: dataBase64) else {
+            reject("INVALID_DATA", "Data must be valid base64", nil)
+            return
+        }
+        let isSb2 = NoiseFFI.sb2IsSb2(data: data)
+        resolve(isSb2)
+    }
+    
+    /// Encrypt plaintext to SB2 binary format
+    @objc(sb2Encrypt:plaintextHex:contextIdHex:msgId:purpose:ownerPeeridHex:senderPeeridHex:recipientPeeridHex:canonicalPath:createdAt:expiresAt:certIdHex:resolver:rejecter:)
+    func sb2Encrypt(
+        _ recipientInboxPkHex: String,
+        plaintextHex: String,
+        contextIdHex: String,
+        msgId: String?,
+        purpose: String?,
+        ownerPeeridHex: String,
+        senderPeeridHex: String,
+        recipientPeeridHex: String,
+        canonicalPath: String,
+        createdAt: NSNumber?,
+        expiresAt: NSNumber?,
+        certIdHex: String?,
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let recipientInboxPk = Data(hexString: recipientInboxPkHex), recipientInboxPk.count == 32 else {
+                reject("INVALID_RECIPIENT_PK", "Recipient inbox public key must be 32 bytes", nil)
+                return
+            }
+            guard let plaintext = Data(hexString: plaintextHex) else {
+                reject("INVALID_PLAINTEXT", "Plaintext must be valid hex", nil)
+                return
+            }
+            guard let contextId = Data(hexString: contextIdHex), contextId.count == 32 else {
+                reject("INVALID_CONTEXT_ID", "Context ID must be 32 bytes", nil)
+                return
+            }
+            guard let ownerPeerid = Data(hexString: ownerPeeridHex), ownerPeerid.count == 32 else {
+                reject("INVALID_OWNER_PEERID", "Owner peerid must be 32 bytes", nil)
+                return
+            }
+            guard let senderPeerid = Data(hexString: senderPeeridHex), senderPeerid.count == 32 else {
+                reject("INVALID_SENDER_PEERID", "Sender peerid must be 32 bytes", nil)
+                return
+            }
+            guard let recipientPeerid = Data(hexString: recipientPeeridHex), recipientPeerid.count == 32 else {
+                reject("INVALID_RECIPIENT_PEERID", "Recipient peerid must be 32 bytes", nil)
+                return
+            }
+            
+            var certId: Data? = nil
+            if let certIdHex = certIdHex {
+                guard let cid = Data(hexString: certIdHex), cid.count == 16 else {
+                    reject("INVALID_CERT_ID", "Cert ID must be 16 bytes", nil)
+                    return
+                }
+                certId = cid
+            }
+            
+            do {
+                let envelope = try NoiseFFI.sb2Encrypt(
+                    recipientInboxPk: recipientInboxPk,
+                    plaintext: plaintext,
+                    contextId: contextId,
+                    msgId: msgId,
+                    purpose: purpose,
+                    ownerPeerid: ownerPeerid,
+                    senderPeerid: senderPeerid,
+                    recipientPeerid: recipientPeerid,
+                    canonicalPath: canonicalPath,
+                    createdAt: createdAt?.uint64Value,
+                    expiresAt: expiresAt?.uint64Value,
+                    certId: certId
+                )
+                resolve(envelope.base64EncodedString())
+            } catch {
+                reject("SB2_ENCRYPT_ERROR", "Failed to encrypt SB2: \(error)", error)
+            }
+        }
+    }
+    
+    /// Decrypt an SB2 binary envelope
+    @objc(sb2Decrypt:recipientInboxSkHex:ownerPeeridHex:canonicalPath:resolver:rejecter:)
+    func sb2Decrypt(
+        _ envelopeBase64: String,
+        recipientInboxSkHex: String,
+        ownerPeeridHex: String,
+        canonicalPath: String,
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let envelope = Data(base64Encoded: envelopeBase64) else {
+                reject("INVALID_ENVELOPE", "Envelope must be valid base64", nil)
+                return
+            }
+            guard let recipientInboxSk = Data(hexString: recipientInboxSkHex), recipientInboxSk.count == 32 else {
+                reject("INVALID_SECRET_KEY", "Recipient inbox secret key must be 32 bytes", nil)
+                return
+            }
+            guard let ownerPeerid = Data(hexString: ownerPeeridHex), ownerPeerid.count == 32 else {
+                reject("INVALID_OWNER_PEERID", "Owner peerid must be 32 bytes", nil)
+                return
+            }
+            
+            do {
+                let result = try NoiseFFI.sb2Decrypt(
+                    envelopeBytes: envelope,
+                    recipientInboxSk: recipientInboxSk,
+                    ownerPeerid: ownerPeerid,
+                    canonicalPath: canonicalPath
+                )
+                
+                let header: [String: Any?] = [
+                    "contextIdHex": result.header.contextIdHex,
+                    "createdAt": result.header.createdAt,
+                    "expiresAt": result.header.expiresAt,
+                    "inboxKidHex": result.header.inboxKidHex,
+                    "msgId": result.header.msgId,
+                    "nonceHex": result.header.nonceHex,
+                    "purpose": result.header.purpose,
+                    "recipientPeeridHex": result.header.recipientPeeridHex,
+                    "senderEphemeralPubHex": result.header.senderEphemeralPubHex,
+                    "senderPeeridHex": result.header.senderPeeridHex,
+                    "sigHex": result.header.sigHex,
+                    "certIdHex": result.header.certIdHex
+                ]
+                
+                resolve([
+                    "header": header,
+                    "plaintext": result.plaintext.hexString
+                ])
+            } catch {
+                reject("SB2_DECRYPT_ERROR", "Failed to decrypt SB2: \(error)", error)
+            }
+        }
+    }
+    
+    /// Sign an SB2 envelope with sender's Ed25519 private key
+    @objc(sb2Sign:senderEd25519SkHex:ownerPeeridHex:canonicalPath:resolver:rejecter:)
+    func sb2Sign(
+        _ envelopeBase64: String,
+        senderEd25519SkHex: String,
+        ownerPeeridHex: String,
+        canonicalPath: String,
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let envelope = Data(base64Encoded: envelopeBase64) else {
+                reject("INVALID_ENVELOPE", "Envelope must be valid base64", nil)
+                return
+            }
+            guard let senderSk = Data(hexString: senderEd25519SkHex), senderSk.count == 32 else {
+                reject("INVALID_SECRET_KEY", "Sender Ed25519 secret key must be 32 bytes", nil)
+                return
+            }
+            guard let ownerPeerid = Data(hexString: ownerPeeridHex), ownerPeerid.count == 32 else {
+                reject("INVALID_OWNER_PEERID", "Owner peerid must be 32 bytes", nil)
+                return
+            }
+            
+            do {
+                let signedEnvelope = try NoiseFFI.sb2Sign(
+                    envelopeBytes: envelope,
+                    senderEd25519Sk: senderSk,
+                    ownerPeerid: ownerPeerid,
+                    canonicalPath: canonicalPath
+                )
+                resolve(signedEnvelope.base64EncodedString())
+            } catch {
+                reject("SB2_SIGN_ERROR", "Failed to sign SB2: \(error)", error)
+            }
+        }
+    }
+    
+    /// Verify the signature on an SB2 envelope
+    @objc(sb2VerifySignature:ownerPeeridHex:canonicalPath:resolver:rejecter:)
+    func sb2VerifySignature(
+        _ envelopeBase64: String,
+        ownerPeeridHex: String,
+        canonicalPath: String,
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let envelope = Data(base64Encoded: envelopeBase64) else {
+                reject("INVALID_ENVELOPE", "Envelope must be valid base64", nil)
+                return
+            }
+            guard let ownerPeerid = Data(hexString: ownerPeeridHex), ownerPeerid.count == 32 else {
+                reject("INVALID_OWNER_PEERID", "Owner peerid must be 32 bytes", nil)
+                return
+            }
+            
+            do {
+                let isValid = try NoiseFFI.sb2VerifySignature(
+                    envelopeBytes: envelope,
+                    ownerPeerid: ownerPeerid,
+                    canonicalPath: canonicalPath
+                )
+                resolve(isValid)
+            } catch {
+                reject("SB2_VERIFY_ERROR", "Failed to verify SB2 signature: \(error)", error)
+            }
+        }
+    }
+    
+    /// Decode an SB2 envelope and return its header without decrypting
+    @objc(sb2DecodeHeader:resolver:rejecter:)
+    func sb2DecodeHeader(
+        _ envelopeBase64: String,
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let envelope = Data(base64Encoded: envelopeBase64) else {
+                reject("INVALID_ENVELOPE", "Envelope must be valid base64", nil)
+                return
+            }
+            
+            do {
+                let header = try NoiseFFI.sb2DecodeHeader(envelopeBytes: envelope)
+                
+                let result: [String: Any?] = [
+                    "contextIdHex": header.contextIdHex,
+                    "createdAt": header.createdAt,
+                    "expiresAt": header.expiresAt,
+                    "inboxKidHex": header.inboxKidHex,
+                    "msgId": header.msgId,
+                    "nonceHex": header.nonceHex,
+                    "purpose": header.purpose,
+                    "recipientPeeridHex": header.recipientPeeridHex,
+                    "senderEphemeralPubHex": header.senderEphemeralPubHex,
+                    "senderPeeridHex": header.senderPeeridHex,
+                    "sigHex": header.sigHex,
+                    "certIdHex": header.certIdHex
+                ]
+                resolve(result)
+            } catch {
+                reject("SB2_DECODE_ERROR", "Failed to decode SB2 header: \(error)", error)
+            }
+        }
+    }
+    
+    /// Generate a random 32-byte context ID for new conversation threads
+    @objc(sb2GenerateContextId:rejecter:)
+    func sb2GenerateContextId(
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let contextId = NoiseFFI.sb2GenerateContextId()
+        resolve(contextId.hexString)
     }
     
     // MARK: - Private Helpers

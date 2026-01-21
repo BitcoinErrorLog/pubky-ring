@@ -189,4 +189,51 @@ RCT_EXTERN_METHOD(computeInboxKid:(NSString *)inboxPkHex
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+// SB2 Binary Wire Format (PUBKY_CRYPTO_SPEC v2.5 Section 7.2)
+RCT_EXTERN_METHOD(sb2IsSb2:(NSString *)dataBase64
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(sb2Encrypt:(NSString *)recipientInboxPkHex
+                  plaintextHex:(NSString *)plaintextHex
+                  contextIdHex:(NSString *)contextIdHex
+                  msgId:(NSString *)msgId
+                  purpose:(NSString *)purpose
+                  ownerPeeridHex:(NSString *)ownerPeeridHex
+                  senderPeeridHex:(NSString *)senderPeeridHex
+                  recipientPeeridHex:(NSString *)recipientPeeridHex
+                  canonicalPath:(NSString *)canonicalPath
+                  createdAt:(NSNumber *)createdAt
+                  expiresAt:(NSNumber *)expiresAt
+                  certIdHex:(NSString *)certIdHex
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(sb2Decrypt:(NSString *)envelopeBase64
+                  recipientInboxSkHex:(NSString *)recipientInboxSkHex
+                  ownerPeeridHex:(NSString *)ownerPeeridHex
+                  canonicalPath:(NSString *)canonicalPath
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(sb2Sign:(NSString *)envelopeBase64
+                  senderEd25519SkHex:(NSString *)senderEd25519SkHex
+                  ownerPeeridHex:(NSString *)ownerPeeridHex
+                  canonicalPath:(NSString *)canonicalPath
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(sb2VerifySignature:(NSString *)envelopeBase64
+                  ownerPeeridHex:(NSString *)ownerPeeridHex
+                  canonicalPath:(NSString *)canonicalPath
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(sb2DecodeHeader:(NSString *)envelopeBase64
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(sb2GenerateContextId:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 @end

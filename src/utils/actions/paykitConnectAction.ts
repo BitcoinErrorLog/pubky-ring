@@ -39,6 +39,12 @@ import {
 	isNativeModuleAvailable,
 	sealedBlobEncryptWithContext,
 	ed25519PublicFromSecret,
+	x25519GenerateKeypair,
+	generateAppKeypair,
+	issueAppCert,
+	sb2Encrypt,
+	sb2Sign,
+	sb2GenerateContextId,
 } from '../PubkyNoiseModule';
 
 /**
@@ -135,6 +141,7 @@ const deriveX25519Keypair = async (
 
 /**
  * Handoff payload structure (encrypted before storing on homeserver)
+ * Version 3 adds AppKey for delegated signing (PUBKY_UNIFIED_KEY_DELEGATION_SPEC)
  */
 interface HandoffPayload {
 	version: number;
@@ -149,6 +156,24 @@ interface HandoffPayload {
 	}[];
 	/** Noise seed for local epoch derivation (so Bitkit doesn't need to re-call Ring) */
 	noise_seed: string;
+	/** InboxKey X25519 keypair for stored message delivery (SB2) */
+	inbox_keypair: {
+		public_key: string;
+		secret_key: string;
+	};
+	/** AppKey for delegated Ed25519 signing (PUBKY_UNIFIED_KEY_DELEGATION_SPEC) */
+	app_key?: {
+		/** Delegated Ed25519 secret key for signing */
+		ed25519_sk: string;
+		/** Delegated Ed25519 public key */
+		ed25519_pk: string;
+		/** AppCert identifier (16 bytes hex) */
+		cert_id: string;
+		/** AppCert body (hex-encoded CBOR) */
+		cert_body: string;
+		/** AppCert signature (hex-encoded) */
+		cert_sig: string;
+	};
 	created_at: number;
 	expires_at: number;
 }
@@ -305,7 +330,7 @@ export const handlePaykitConnectAction = async (
 
 /**
  * Secure handoff: Encrypt and store payload on homeserver, return only request_id
- * Uses Paykit Sealed Blob v2 format for encryption (XChaCha20-Poly1305)
+ * Uses SB2 Binary Wire Format for encryption (PUBKY_CRYPTO_SPEC v2.5 Section 7.2)
  */
 const handleSecureHandoff = async ({
 	pubky,
@@ -346,6 +371,55 @@ const handleSecureHandoff = async ({
 		return err(errorMessage);
 	}
 
+	// Generate InboxKey for stored message delivery (SB2)
+	let inboxKeypair: { secretKey: string; publicKey: string };
+	try {
+		inboxKeypair = await x25519GenerateKeypair();
+		console.log('[PaykitConnectAction] Generated InboxKey:', inboxKeypair.publicKey.substring(0, 16) + '...');
+	} catch (e) {
+		const errorMessage = e instanceof Error ? e.message : 'Failed to generate InboxKey';
+		console.error('[PaykitConnectAction] InboxKey generation failed:', errorMessage);
+		showToast({
+			type: 'error',
+			title: i18n.t('common.error'),
+			description: 'Failed to generate inbox key',
+		});
+		return err(errorMessage);
+	}
+
+	// Generate AppKey for delegated signing (PUBKY_UNIFIED_KEY_DELEGATION_SPEC)
+	let appKey: HandoffPayload['app_key'];
+	try {
+		// Generate Ed25519 keypair for the app
+		const appKeypair = await generateAppKeypair();
+		
+		// Issue an AppCert signed by the root identity
+		const certResult = await issueAppCert(
+			ed25519SecretKey,
+			'paykit',
+			appKeypair.publicKey,
+			keypair0.publicKey, // TransportKey
+			inboxKeypair.publicKey, // InboxKey
+			isHexString(deviceId) ? deviceId : stringToHex(deviceId),
+			['paykit:*'], // Full Paykit scope
+			null, // No expiry for now
+		);
+
+		appKey = {
+			ed25519_sk: appKeypair.secretKey,
+			ed25519_pk: appKeypair.publicKey,
+			cert_id: certResult.certIdHex,
+			cert_body: certResult.certBodyHex,
+			cert_sig: certResult.sigHex,
+		};
+		console.log('[PaykitConnectAction] Issued AppCert with ID:', certResult.certIdHex.substring(0, 16) + '...');
+	} catch (e) {
+		const errorMessage = e instanceof Error ? e.message : 'Failed to generate AppKey';
+		console.error('[PaykitConnectAction] AppKey generation failed:', errorMessage);
+		// AppKey is optional, continue without it
+		console.warn('[PaykitConnectAction] Continuing without AppKey');
+	}
+
 	// Build handoff payload
 	const noiseKeypairs = [{ epoch: 0, public_key: keypair0.publicKey, secret_key: keypair0.secretKey }];
 	if (keypair1) {
@@ -355,56 +429,97 @@ const handleSecureHandoff = async ({
 	// Use Unix seconds per PUBKY_CRYPTO_SPEC
 	const nowSeconds = Math.floor(Date.now() / 1000);
 	const payload: HandoffPayload = {
-		version: 2,
+		version: 3, // Version 3 includes InboxKey and AppKey
 		pubky: sessionInfo.pubky,
 		session_secret: sessionInfo.session_secret,
 		capabilities: sessionInfo.capabilities,
 		device_id: deviceId,
 		noise_keypairs: noiseKeypairs,
 		noise_seed: noiseSeed,
+		inbox_keypair: {
+			public_key: inboxKeypair.publicKey,
+			secret_key: inboxKeypair.secretKey,
+		},
+		app_key: appKey,
 		created_at: nowSeconds,
 		expires_at: nowSeconds + 5 * 60, // 5 minute expiry (in seconds)
 	};
 
-	// Encrypt payload to Bitkit's ephemeral X25519 public key
-	// This ensures only Bitkit can decrypt (using its ephemeral secret key)
-	// AAD is computed internally per PUBKY_CRYPTO_SPEC Section 7.5:
-	// aad = "pubky-envelope/v2:" || owner_peerid_bytes || canonical_path_bytes || header_bytes
+	// Generate a context ID for the handoff SB2 envelope
+	const contextIdHex = await sb2GenerateContextId();
+	
+	// Encrypt payload using SB2 Binary Wire Format (PUBKY_CRYPTO_SPEC v2.5 Section 7.2)
+	// This uses the recipient's ephemeral InboxKey (ephemeralPk) for ECDH
 	const storagePath = `/pub/paykit.app/v0/handoff/${requestId}`;
 	const payloadJson = JSON.stringify(payload);
 	const payloadHex = stringToHex(payloadJson);
 
-	let encryptedEnvelope: string;
+	let encryptedEnvelopeBase64: string;
 	try {
-		encryptedEnvelope = await sealedBlobEncryptWithContext(
-			ephemeralPk,
-			payloadHex,
+		// Encrypt with SB2 binary format
+		encryptedEnvelopeBase64 = await sb2Encrypt(
+			ephemeralPk,    // recipientInboxPkHex
+			payloadHex,     // plaintextHex
+			contextIdHex,   // contextIdHex (32 bytes random)
+			`handoff-${requestId}`, // msgId (idempotency key)
+			'handoff',      // purpose
+			ownerPeeridHex, // ownerPeeridHex
+			ownerPeeridHex, // senderPeeridHex (same as owner for handoff)
+			ownerPeeridHex, // recipientPeeridHex (self-addressed, Bitkit will process)
+			storagePath,    // canonicalPath
+			nowSeconds,     // createdAt
+			nowSeconds + 5 * 60, // expiresAt (5 minutes)
+			null,           // certIdHex (no delegated signing for handoff)
+		);
+
+		// Sign the envelope with the owner's Ed25519 key
+		encryptedEnvelopeBase64 = await sb2Sign(
+			encryptedEnvelopeBase64,
+			ed25519SecretKey,
 			ownerPeeridHex,
 			storagePath,
-			'handoff',
 		);
+		console.log('[PaykitConnectAction] Created SB2 envelope, base64 length:', encryptedEnvelopeBase64.length);
 	} catch (encryptError) {
 		const errorMessage = encryptError instanceof Error ? encryptError.message : 'Encryption failed';
-		console.error('[PaykitConnectAction] Encryption error:', errorMessage);
-		showToast({
-			type: 'error',
-			title: i18n.t('common.error'),
-			description: 'Failed to encrypt handoff payload',
-		});
-		return err(errorMessage);
+		console.error('[PaykitConnectAction] SB2 encryption error:', errorMessage);
+		// Fallback to JSON format for backward compatibility
+		console.warn('[PaykitConnectAction] Falling back to JSON sealed blob format');
+		try {
+			const jsonEnvelope = await sealedBlobEncryptWithContext(
+				ephemeralPk,
+				payloadHex,
+				ownerPeeridHex,
+				storagePath,
+				'handoff',
+			);
+			// Store JSON envelope directly (not base64)
+			const handoffPath = `pubky://${pubky}/pub/paykit.app/v0/handoff/${requestId}`;
+			const envelopeObj = JSON.parse(jsonEnvelope);
+			const putResult = await put(handoffPath, envelopeObj, ed25519SecretKey);
+			if (putResult.isErr()) {
+				throw new Error(`PUT failed: ${putResult.error}`);
+			}
+			// Continue with callback (skip SB2 storage below)
+			return await completeHandoffCallback(pubky, sessionInfo, requestId, keypair0, deviceId, nowSeconds, callback, ed25519SecretKey);
+		} catch (fallbackError) {
+			const fallbackMsg = fallbackError instanceof Error ? fallbackError.message : 'Fallback failed';
+			showToast({
+				type: 'error',
+				title: i18n.t('common.error'),
+				description: 'Failed to encrypt handoff payload',
+			});
+			return err(fallbackMsg);
+		}
 	}
 
-	// Store ENCRYPTED envelope at /pub/paykit.app/v0/handoff/{request_id}
-	// The envelope is a JSON object with: v, epk, nonce, ct, kid, purpose
-	// Even if discovered, the ciphertext is useless without Bitkit's ephemeral secret key
+	// Store SB2 envelope at /pub/paykit.app/v0/handoff/{request_id}
+	// The content is stored as a JSON object with { sb2: <base64> } wrapper
+	// This allows the homeserver to store binary data as JSON
 	const handoffPath = `pubky://${pubky}/pub/paykit.app/v0/handoff/${requestId}`;
-
-	// Parse the envelope JSON and store it
-	const envelopeObj = JSON.parse(encryptedEnvelope);
-	console.log('[PaykitConnectAction] Storing handoff at:', handoffPath);
-	console.log('[PaykitConnectAction] Envelope keys:', Object.keys(envelopeObj));
-	console.log('[PaykitConnectAction] SecretKey length:', ed25519SecretKey?.length);
-	const putResult = await put(handoffPath, envelopeObj, ed25519SecretKey);
+	const sb2Wrapper = { sb2: encryptedEnvelopeBase64 };
+	console.log('[PaykitConnectAction] Storing SB2 handoff at:', handoffPath);
+	const putResult = await put(handoffPath, sb2Wrapper, ed25519SecretKey);
 	if (putResult.isErr()) {
 		// Extract all possible error info - handle various error formats
 		const errorObj = putResult.error;
@@ -438,6 +553,34 @@ const handleSecureHandoff = async ({
 		return err(errorMessage);
 	}
 
+	// Publish KeyBinding at /pub/paykit.app/v0/keybinding
+	// Contains InboxKey for stored delivery and TransportKey for Noise sessions
+	const keybindingPath = `pubky://${pubky}/pub/paykit.app/v0/keybinding`;
+	const keybinding = {
+		inbox_keys: [{
+			inbox_kid: await computeInboxKid(inboxKeypair.publicKey),
+			x25519_pub: inboxKeypair.publicKey,
+		}],
+		transport_keys: [{
+			x25519_pub: keypair0.publicKey,
+		}],
+		app_keys: appKey ? [{
+			cert_id: appKey.cert_id,
+			ed25519_pub: appKey.ed25519_pk,
+		}] : [],
+	};
+	
+	const keybindingResult = await put(keybindingPath, keybinding, ed25519SecretKey);
+	if (keybindingResult.isErr()) {
+		console.warn(
+			'[PaykitConnectAction] Failed to publish KeyBinding:',
+			getErrorMessage(keybindingResult.error, 'Unknown error')
+		);
+		// Continue anyway - Bitkit can publish this later
+	} else {
+		console.log('[PaykitConnectAction] Published KeyBinding at:', keybindingPath);
+	}
+
 	// Publish Noise endpoint for discoverability by other Paykit clients
 	// This enables encrypted subscription proposals and payment requests
 	// The host/port are placeholders - Bitkit will update when starting its Noise server
@@ -464,6 +607,30 @@ const handleSecureHandoff = async ({
 		);
 	}
 
+	return await completeHandoffCallback(pubky, sessionInfo, requestId, keypair0, deviceId, nowSeconds, callback, ed25519SecretKey);
+};
+
+/**
+ * Compute inbox_kid from inbox public key (SHA256 first 16 bytes)
+ */
+const computeInboxKid = async (inboxPkHex: string): Promise<string> => {
+	const { computeInboxKid: nativeComputeInboxKid } = await import('../PubkyNoiseModule');
+	return nativeComputeInboxKid(inboxPkHex);
+};
+
+/**
+ * Complete the handoff by opening the callback URL
+ */
+const completeHandoffCallback = async (
+	pubky: string,
+	sessionInfo: { pubky: string; session_secret: string; capabilities: string[] },
+	requestId: string,
+	keypair0: { publicKey: string; secretKey: string },
+	deviceId: string,
+	nowSeconds: number,
+	callback: string,
+	ed25519SecretKey: string,
+): Promise<Result<string>> => {
 	// Get the user's homeserver pubkey for the callback
 	const pubkyData = getPubkyDataFromStore(sessionInfo.pubky);
 	const homeserverPubkey = pubkyData?.homeserver || DEFAULT_HOMESERVER;

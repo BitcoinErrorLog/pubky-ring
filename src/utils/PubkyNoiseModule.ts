@@ -81,6 +81,30 @@ export interface AppCertResult {
 }
 
 // ============================================================================
+// Types - SB2 Binary Wire Format (PUBKY_CRYPTO_SPEC v2.5 Section 7.2)
+// ============================================================================
+
+export interface Sb2Header {
+	contextIdHex: string;
+	createdAt: number | null;
+	expiresAt: number | null;
+	inboxKidHex: string;
+	msgId: string | null;
+	nonceHex: string;
+	purpose: string | null;
+	recipientPeeridHex: string;
+	senderEphemeralPubHex: string;
+	senderPeeridHex: string;
+	sigHex: string | null;
+	certIdHex: string | null;
+}
+
+export interface Sb2DecryptResult {
+	header: Sb2Header;
+	plaintext: string; // hex-encoded
+}
+
+// ============================================================================
 // Availability Check
 // ============================================================================
 
@@ -813,6 +837,188 @@ export const computeInboxKid = async (inboxPkHex: string): Promise<string> => {
 };
 
 // ============================================================================
+// SB2 Binary Wire Format Functions (PUBKY_CRYPTO_SPEC v2.5 Section 7.2)
+// ============================================================================
+
+/**
+ * Check if data starts with SB2 magic bytes ("SB2").
+ *
+ * Use this to detect whether data is SB2 binary format or legacy JSON.
+ *
+ * @param dataBase64 - Base64-encoded bytes to check
+ * @returns Promise resolving to true if data starts with SB2 magic
+ */
+export const sb2IsSb2 = async (dataBase64: string): Promise<boolean> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.sb2IsSb2(dataBase64);
+};
+
+/**
+ * Encrypt plaintext to SB2 binary format.
+ *
+ * Creates an SB2 envelope per PUBKY_CRYPTO_SPEC v2.5 Section 7.2.
+ * For signed messages, call sb2Sign after encryption.
+ *
+ * @param recipientInboxPkHex - Recipient's InboxKey X25519 public key (32 bytes, 64 hex chars)
+ * @param plaintextHex - Data to encrypt (hex-encoded)
+ * @param contextIdHex - Thread identifier (32 bytes, 64 hex chars - random for new threads)
+ * @param msgId - Optional idempotency key (ASCII, max 128 chars)
+ * @param purpose - Optional purpose hint ("request", "proposal", "ack")
+ * @param ownerPeeridHex - Storage owner's Ed25519 public key (32 bytes, 64 hex chars)
+ * @param senderPeeridHex - Sender's Ed25519 public key (32 bytes, 64 hex chars)
+ * @param recipientPeeridHex - Recipient's Ed25519 public key (32 bytes, 64 hex chars)
+ * @param canonicalPath - Canonical storage path (e.g., "/pub/paykit.app/v0/requests/abc/req_001")
+ * @param createdAt - Optional Unix timestamp (seconds)
+ * @param expiresAt - Optional Unix timestamp (seconds)
+ * @param certIdHex - Optional AppCert identifier (16 bytes, 32 hex chars) for delegated signing
+ * @returns Promise resolving to SB2 binary envelope as base64
+ */
+export const sb2Encrypt = async (
+	recipientInboxPkHex: string,
+	plaintextHex: string,
+	contextIdHex: string,
+	msgId: string | null,
+	purpose: string | null,
+	ownerPeeridHex: string,
+	senderPeeridHex: string,
+	recipientPeeridHex: string,
+	canonicalPath: string,
+	createdAt: number | null,
+	expiresAt: number | null,
+	certIdHex: string | null
+): Promise<string> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.sb2Encrypt(
+		recipientInboxPkHex,
+		plaintextHex,
+		contextIdHex,
+		msgId,
+		purpose,
+		ownerPeeridHex,
+		senderPeeridHex,
+		recipientPeeridHex,
+		canonicalPath,
+		createdAt,
+		expiresAt,
+		certIdHex
+	);
+};
+
+/**
+ * Decrypt an SB2 binary envelope.
+ *
+ * @param envelopeBase64 - SB2 binary envelope as base64
+ * @param recipientInboxSkHex - Recipient's InboxKey X25519 secret key (32 bytes, 64 hex chars)
+ * @param ownerPeeridHex - Storage owner's Ed25519 public key (32 bytes, 64 hex chars)
+ * @param canonicalPath - Canonical storage path (must match encryption)
+ * @returns Promise resolving to Sb2DecryptResult with header and plaintext
+ */
+export const sb2Decrypt = async (
+	envelopeBase64: string,
+	recipientInboxSkHex: string,
+	ownerPeeridHex: string,
+	canonicalPath: string
+): Promise<Sb2DecryptResult> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.sb2Decrypt(
+		envelopeBase64,
+		recipientInboxSkHex,
+		ownerPeeridHex,
+		canonicalPath
+	);
+};
+
+/**
+ * Sign an SB2 envelope with sender's Ed25519 private key.
+ *
+ * Per PUBKY_CRYPTO_SPEC Section 7.2.1, the signature input is:
+ * sig_input = BLAKE3("pubky-envelope-sig/v2" || aad || header_no_sig || ciphertext)
+ *
+ * @param envelopeBase64 - SB2 binary envelope as base64
+ * @param senderEd25519SkHex - Sender's Ed25519 secret key (32 bytes, 64 hex chars)
+ * @param ownerPeeridHex - Storage owner's Ed25519 public key (32 bytes, 64 hex chars)
+ * @param canonicalPath - Canonical storage path
+ * @returns Promise resolving to signed SB2 binary envelope as base64
+ */
+export const sb2Sign = async (
+	envelopeBase64: string,
+	senderEd25519SkHex: string,
+	ownerPeeridHex: string,
+	canonicalPath: string
+): Promise<string> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.sb2Sign(
+		envelopeBase64,
+		senderEd25519SkHex,
+		ownerPeeridHex,
+		canonicalPath
+	);
+};
+
+/**
+ * Verify the signature on an SB2 envelope.
+ *
+ * @param envelopeBase64 - SB2 binary envelope as base64
+ * @param ownerPeeridHex - Storage owner's Ed25519 public key (32 bytes, 64 hex chars)
+ * @param canonicalPath - Canonical storage path
+ * @returns Promise resolving to true if signature is valid, false if no signature present
+ */
+export const sb2VerifySignature = async (
+	envelopeBase64: string,
+	ownerPeeridHex: string,
+	canonicalPath: string
+): Promise<boolean> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.sb2VerifySignature(
+		envelopeBase64,
+		ownerPeeridHex,
+		canonicalPath
+	);
+};
+
+/**
+ * Decode an SB2 envelope and return its header without decrypting.
+ *
+ * Useful for inspecting metadata (sender, expiry, etc.) before decryption.
+ *
+ * @param envelopeBase64 - SB2 binary envelope as base64
+ * @returns Promise resolving to Sb2Header with all metadata fields
+ */
+export const sb2DecodeHeader = async (
+	envelopeBase64: string
+): Promise<Sb2Header> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.sb2DecodeHeader(envelopeBase64);
+};
+
+/**
+ * Generate a random 32-byte context ID for new conversation threads.
+ *
+ * Per Paykit protocol, new threads should use random context IDs
+ * rather than pair-derived IDs.
+ *
+ * @returns Promise resolving to random 32 bytes as hex (64 chars)
+ */
+export const sb2GenerateContextId = async (): Promise<string> => {
+	if (!isNativeModuleAvailable()) {
+		throw new Error('PubkyNoiseModule native module is not available');
+	}
+	return NativePubkyNoiseModule.sb2GenerateContextId();
+};
+
+// ============================================================================
 // Default Export
 // ============================================================================
 
@@ -844,6 +1050,14 @@ export default {
 	signTypedContent,
 	verifyTypedContent,
 	computeInboxKid,
+	// SB2 Binary Wire Format (PUBKY_CRYPTO_SPEC v2.5 Section 7.2)
+	sb2IsSb2,
+	sb2Encrypt,
+	sb2Decrypt,
+	sb2Sign,
+	sb2VerifySignature,
+	sb2DecodeHeader,
+	sb2GenerateContextId,
 	// Manager Lifecycle
 	createClientManager,
 	createServerManager,
