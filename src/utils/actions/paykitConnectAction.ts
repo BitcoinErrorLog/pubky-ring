@@ -6,17 +6,29 @@
  * - Noise keypair for epoch 0 (and optionally epoch 1 for key rotation)
  * - Device ID used for derivation
  * - Noise seed for local epoch derivation (so Bitkit doesn't need to re-call Ring)
+ * - InboxKey X25519 keypair for SB2 stored message delivery
+ * - AppKey Ed25519 keypair + AppCert for delegated signing
  *
  * This eliminates the need for multiple Ring interactions and allows Bitkit
  * to operate independently after initial setup.
  *
- * SECURE HANDOFF ONLY (ephemeralPk REQUIRED):
- * - Bitkit sends: pubkyring://paykit-connect?deviceId=abc&callback=...&ephemeralPk=xyz
- * - Ring encrypts payload using Bitkit's ephemeral X25519 public key (Paykit Sealed Blob v2)
- * - Ring stores encrypted envelope at /pub/paykit.app/v0/handoff/{request_id}
- * - Ring returns only: bitkit://paykit-setup?pubky=...&request_id=...&mode=secure_handoff
- * - Bitkit fetches envelope from homeserver, decrypts with ephemeral secret key
- * - NO secrets in URL, NO plaintext secrets on homeserver
+ * SECURE HANDOFF PROTOCOL (SB2 Binary Wire Format):
+ * 1. Bitkit sends: pubkyring://paykit-connect?deviceId=abc&callback=...&ephemeralPk=xyz
+ * 2. Ring generates InboxKey, AppKey (with AppCert), and noise keypairs
+ * 3. Ring encrypts handoff payload using SB2 format to Bitkit's ephemeral X25519 key
+ * 4. Ring signs the SB2 envelope with owner's Ed25519 key for authenticity
+ * 5. Ring stores encrypted envelope at /pub/paykit.app/v0/handoff/{request_id}
+ * 6. Ring publishes KeyBinding at /pub/paykit.app/v0/keybinding (contains InboxKey, TransportKey, AppKey)
+ * 7. Ring publishes Noise endpoint at /pub/paykit.app/v0/noise (for discoverability)
+ * 8. Ring returns: bitkit://paykit-setup?pubky=...&request_id=...&mode=secure_handoff
+ * 9. Bitkit fetches envelope from homeserver, decrypts with ephemeral secret key
+ * 10. Bitkit extracts InboxKey, AppKey, noise_seed for local use
+ *
+ * SECURITY PROPERTIES:
+ * - NO secrets in callback URL
+ * - NO plaintext secrets on homeserver
+ * - Envelope signed by owner for authenticity verification
+ * - AppKey enables delegated signing without exposing root identity key
  *
  * LEGACY MODE REMOVED: ephemeralPk is now REQUIRED for security.
  * Requests without ephemeralPk will be rejected with an error.
@@ -93,7 +105,7 @@ type PaykitConnectActionData = {
 const generateRequestId = async (): Promise<string> => {
 	// Generate an ephemeral X25519 keypair - the secret key is 32 random bytes
 	// This leverages the native module's secure random generation
-	const { x25519GenerateKeypair } = await import('../PubkyNoiseModule');
+	// Uses the statically imported x25519GenerateKeypair from PubkyNoiseModule
 	const keypair = await x25519GenerateKeypair();
 	// Use the secret key as our random request ID (it's 32 cryptographically random bytes)
 	return keypair.secretKey;
@@ -330,7 +342,15 @@ export const handlePaykitConnectAction = async (
 
 /**
  * Secure handoff: Encrypt and store payload on homeserver, return only request_id
- * Uses SB2 Binary Wire Format for encryption (PUBKY_CRYPTO_SPEC v2.5 Section 7.2)
+ *
+ * Uses SB2 Binary Wire Format for encryption (PUBKY_CRYPTO_SPEC v2.5 Section 7.2):
+ * 1. Generates InboxKey (X25519) for stored message delivery
+ * 2. Generates AppKey (Ed25519) + AppCert for delegated signing
+ * 3. Encrypts payload to Bitkit's ephemeral X25519 key using SB2
+ * 4. Signs envelope with owner's Ed25519 key
+ * 5. Stores as {"sb2": base64} at /pub/paykit.app/v0/handoff/{request_id}
+ * 6. Publishes KeyBinding with InboxKey, TransportKey, AppKey for discoverability
+ * 7. Publishes Noise endpoint for encrypted messaging
  */
 const handleSecureHandoff = async ({
 	pubky,
@@ -456,20 +476,24 @@ const handleSecureHandoff = async ({
 
 	let encryptedEnvelopeBase64: string;
 	try {
-		// Encrypt with SB2 binary format
+		// Encrypt with SB2 binary format (PUBKY_CRYPTO_SPEC v2.5 Section 7.2)
+		// Note: For handoff, we set recipientPeerid to ownerPeerid because:
+		// - The handoff is from Ring to Bitkit, both operating on the same identity
+		// - The actual encryption key is ephemeralPk (Bitkit's session key)
+		// - Bitkit verifies it owns the ephemeral key, not the recipientPeerid
 		encryptedEnvelopeBase64 = await sb2Encrypt(
-			ephemeralPk,    // recipientInboxPkHex
+			ephemeralPk,    // recipientInboxPkHex - Bitkit's ephemeral X25519 public key
 			payloadHex,     // plaintextHex
 			contextIdHex,   // contextIdHex (32 bytes random)
 			`handoff-${requestId}`, // msgId (idempotency key)
 			'handoff',      // purpose
-			ownerPeeridHex, // ownerPeeridHex
-			ownerPeeridHex, // senderPeeridHex (same as owner for handoff)
-			ownerPeeridHex, // recipientPeeridHex (self-addressed, Bitkit will process)
-			storagePath,    // canonicalPath
+			ownerPeeridHex, // ownerPeeridHex - identity that owns the homeserver storage
+			ownerPeeridHex, // senderPeeridHex - Ring sends on behalf of owner
+			ownerPeeridHex, // recipientPeeridHex - same identity (Ring-to-Bitkit on same account)
+			storagePath,    // canonicalPath - path binding for AAD
 			nowSeconds,     // createdAt
 			nowSeconds + 5 * 60, // expiresAt (5 minutes)
-			null,           // certIdHex (no delegated signing for handoff)
+			null,           // certIdHex (no delegated signing for handoff itself)
 		);
 
 		// Sign the envelope with the owner's Ed25519 key
