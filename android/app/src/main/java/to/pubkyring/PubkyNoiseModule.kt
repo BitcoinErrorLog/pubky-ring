@@ -1088,7 +1088,7 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
         scope.launch {
             try {
                 val data = Base64.decode(dataBase64, Base64.DEFAULT)
-                val isSb2 = sb2IsSb2(data.toList())
+                val isSb2 = sb2IsSb2(data)
                 promise.resolve(isSb2)
             } catch (e: Exception) {
                 promise.reject("SB2_ERROR", "Failed to check SB2 format: ${e.message}", e)
@@ -1158,20 +1158,20 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
                 }
 
                 val envelope = sb2Encrypt(
-                    recipientInboxPk.toList(),
-                    plaintext.toList(),
-                    contextId.toList(),
+                    recipientInboxPk,
+                    plaintext,
+                    contextId,
                     msgId,
                     purpose,
-                    ownerPeerid.toList(),
-                    senderPeerid.toList(),
-                    recipientPeerid.toList(),
+                    ownerPeerid,
+                    senderPeerid,
+                    recipientPeerid,
                     canonicalPath,
                     createdAt?.toLong()?.toULong(),
                     expiresAt?.toLong()?.toULong(),
-                    certId?.toList(),
+                    certId,
                 )
-                val base64Envelope = Base64.encodeToString(envelope.toByteArray(), Base64.NO_WRAP)
+                val base64Envelope = Base64.encodeToString(envelope, Base64.NO_WRAP)
                 promise.resolve(base64Envelope)
             } catch (e: Exception) {
                 promise.reject("SB2_ENCRYPT_ERROR", "Failed to encrypt SB2: ${e.message}", e)
@@ -1206,9 +1206,9 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
                 }
 
                 val result = sb2Decrypt(
-                    envelope.toList(),
-                    recipientInboxSk.toList(),
-                    ownerPeerid.toList(),
+                    envelope,
+                    recipientInboxSk,
+                    ownerPeerid,
                     canonicalPath,
                 )
 
@@ -1229,7 +1229,7 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
 
                 val responseMap = Arguments.createMap().apply {
                     putMap("header", headerMap)
-                    putString("plaintext", byteArrayToHexString(result.plaintext.toByteArray()))
+                    putString("plaintext", byteArrayToHexString(result.plaintext))
                 }
                 promise.resolve(responseMap)
             } catch (e: Exception) {
@@ -1265,12 +1265,12 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
                 }
 
                 val signedEnvelope = sb2Sign(
-                    envelope.toList(),
-                    senderSk.toList(),
-                    ownerPeerid.toList(),
+                    envelope,
+                    senderSk,
+                    ownerPeerid,
                     canonicalPath,
                 )
-                val base64Envelope = Base64.encodeToString(signedEnvelope.toByteArray(), Base64.NO_WRAP)
+                val base64Envelope = Base64.encodeToString(signedEnvelope, Base64.NO_WRAP)
                 promise.resolve(base64Envelope)
             } catch (e: Exception) {
                 promise.reject("SB2_SIGN_ERROR", "Failed to sign SB2: ${e.message}", e)
@@ -1298,8 +1298,8 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
                 }
 
                 val isValid = sb2VerifySignature(
-                    envelope.toList(),
-                    ownerPeerid.toList(),
+                    envelope,
+                    ownerPeerid,
                     canonicalPath,
                 )
                 promise.resolve(isValid)
@@ -1317,7 +1317,7 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
         scope.launch {
             try {
                 val envelope = Base64.decode(envelopeBase64, Base64.DEFAULT)
-                val header = sb2DecodeHeader(envelope.toList())
+                val header = sb2DecodeHeader(envelope)
 
                 val headerMap = Arguments.createMap().apply {
                     putString("contextIdHex", header.contextIdHex)
@@ -1348,7 +1348,7 @@ class PubkyNoiseModule(reactContext: ReactApplicationContext) : ReactContextBase
         scope.launch {
             try {
                 val contextId = sb2GenerateContextId()
-                promise.resolve(byteArrayToHexString(contextId.toByteArray()))
+                promise.resolve(byteArrayToHexString(contextId))
             } catch (e: Exception) {
                 promise.reject("SB2_CONTEXT_ERROR", "Failed to generate context ID: ${e.message}", e)
             }
