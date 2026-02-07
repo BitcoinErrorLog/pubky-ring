@@ -7,7 +7,7 @@
 
 import { Dispatch } from 'redux';
 import { SheetManager } from 'react-native-actions-sheet';
-import { ParsedInput, InputSource } from '../utils/inputParser';
+import { ParsedInput, InputSource, InputAction } from '../utils/inputParser';
 import { routeInput, actionRequiresPubky, ActionContext } from '../utils/inputRouter';
 import { setDeepLink } from '../store/slices/pubkysSlice';
 import { copyToClipboard } from '../utils/clipboard';
@@ -43,6 +43,11 @@ export const routeInputWithContext = async (
 	const result = await routeInput(parsed, context);
 
 	if (result.isErr()) {
+		// Skip toast for signup/invite actions - they handle errors via the loading modal
+		if (parsed.action === InputAction.Signup || parsed.action === InputAction.Invite) {
+			return;
+		}
+
 		const errorMessage = getErrorMessage(result.error, i18n.t('errors.unknownError'));
 
 		// Build debug info for troubleshooting
@@ -75,30 +80,33 @@ export const routeInputWithContext = async (
 
 /**
  * Shows pubky selection sheet for multi-pubky scenarios
+ * Returns the selected pubky, or null if user dismisses without selecting
  */
 export const showPubkySelectionSheet = async (
 	parsed: ParsedInput,
 	source: InputSource,
 	dispatch: Dispatch,
-	onSelect: (pubky: string) => Promise<void>
-): Promise<void> => {
+): Promise<string | null> => {
 	await SheetManager.hideAll();
 	await sleep(150);
 
-	SheetManager.show('select-pubky', {
-		payload: {
-			deepLink: parsed.rawInput,
-			onSelect: async (selectedPubky: string) => {
-				SheetManager.hide('select-pubky');
-				await onSelect(selectedPubky);
+	return new Promise((resolve) => {
+		SheetManager.show('select-pubky', {
+			payload: {
+				deepLink: parsed.rawInput,
+				onSelect: (selectedPubky: string) => {
+					SheetManager.hide('select-pubky');
+					resolve(selectedPubky);
+				},
 			},
-		},
-		onClose: (): void => {
-			SheetManager.hide('select-pubky');
-			if (source === 'deeplink') {
-				dispatch(setDeepLink(''));
-			}
-		},
+			onClose: (): void => {
+				SheetManager.hide('select-pubky');
+				if (source === 'deeplink') {
+					dispatch(setDeepLink(''));
+				}
+				resolve(null);
+			},
+		});
 	});
 };
 

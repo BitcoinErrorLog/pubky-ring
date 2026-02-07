@@ -72,14 +72,14 @@ export const useDeepLinkHandler = (
 
 				// Always show selection sheet for actions requiring pubky
 				// This gives user a chance to confirm even with single pubky
-				await showPubkySelectionSheet(
+				const selectedPubky = await showPubkySelectionSheet(
 					parsedInput,
 					'deeplink',
 					dispatch,
-					async (selectedPubky: string) => {
-						await routeInputWithContext(parsedInput, selectedPubky, 'deeplink', dispatch);
-					}
 				);
+				if (selectedPubky) {
+					await routeInputWithContext(parsedInput, selectedPubky, 'deeplink', dispatch);
+				}
 				return;
 			}
 
