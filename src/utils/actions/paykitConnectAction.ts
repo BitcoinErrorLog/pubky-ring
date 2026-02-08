@@ -35,7 +35,7 @@
  */
 
 import { Result, ok, err } from '@synonymdev/result';
-import { Linking, NativeModules } from 'react-native';
+import { Linking } from 'react-native';
 import { put as originalPut } from '@synonymdev/react-native-pubky';
 import { InputAction, PaykitConnectParams } from '../inputParser';
 import { ActionContext } from '../inputRouter';
@@ -61,22 +61,23 @@ import {
 
 /**
  * Wrapper for put() that properly captures native errors
- * The react-native-pubky library uses JSON.stringify(e) which returns {} for Error objects
+ * Uses the react-native-pubky library's put function which handles
+ * cross-platform native module access correctly.
  */
 const put = async (url: string, content: object, secretKey: string): Promise<Result<string[]>> => {
 	try {
-		// Try calling the native module directly to get better error messages
-		const Pubky = NativeModules.Pubky;
-		if (!Pubky) {
-			return err('Pubky native module not available');
+		const result = await originalPut(url, content, secretKey);
+		if (result.isErr()) {
+			const errorMsg = typeof result.error === 'string' 
+				? result.error 
+				: result.error instanceof Error 
+					? result.error.message 
+					: JSON.stringify(result.error);
+			console.error('[put wrapper] Error:', errorMsg);
+			return err(errorMsg);
 		}
-		const res = await Pubky.put(url, JSON.stringify(content), secretKey);
-		if (res[0] === 'error') {
-			return err(res[1] || 'Native put returned error');
-		}
-		return ok(res[1]);
+		return ok(result.value);
 	} catch (e: unknown) {
-		// Properly extract error message from native errors
 		let message = 'Unknown native error';
 		if (e instanceof Error) {
 			message = e.message || e.name || 'Error (no message)';

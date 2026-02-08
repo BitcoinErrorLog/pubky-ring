@@ -50,6 +50,27 @@ RCT_EXTERN_METHOD(deriveNoiseSeed:(NSString *)ed25519SecretHex
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+// Sealed Blob v2 with Spec-Compliant AAD
+RCT_EXTERN_METHOD(sealedBlobEncryptWithContext:(NSString *)recipientPkHex
+                  plaintextHex:(NSString *)plaintextHex
+                  ownerPeeridHex:(NSString *)ownerPeeridHex
+                  canonicalPath:(NSString *)canonicalPath
+                  purpose:(NSString *)purpose
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(sealedBlobDecryptWithContext:(NSString *)recipientSkHex
+                  envelopeJson:(NSString *)envelopeJson
+                  ownerPeeridHex:(NSString *)ownerPeeridHex
+                  canonicalPath:(NSString *)canonicalPath
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+// Ed25519 Key Derivation
+RCT_EXTERN_METHOD(ed25519PublicFromSecret:(NSString *)ed25519SecretHex
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 // Ed25519 Signing
 RCT_EXTERN_METHOD(ed25519Sign:(NSString *)ed25519SecretHex
                   messageHex:(NSString *)messageHex

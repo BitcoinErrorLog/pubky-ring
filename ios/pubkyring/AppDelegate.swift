@@ -50,7 +50,11 @@ class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
 
   override func bundleURL() -> URL? {
 #if DEBUG
-    RCTBundleURLProvider.sharedSettings().jsBundleURL(forBundleRoot: "index")
+    // Try Metro first, fall back to embedded bundle
+    if let metroURL = RCTBundleURLProvider.sharedSettings().jsBundleURL(forBundleRoot: "index") {
+      return metroURL
+    }
+    return Bundle.main.url(forResource: "main", withExtension: "jsbundle")
 #else
     Bundle.main.url(forResource: "main", withExtension: "jsbundle")
 #endif
