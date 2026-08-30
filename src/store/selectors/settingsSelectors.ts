@@ -14,7 +14,7 @@ export const getTheme = createSelector(
 
 export const getShowOnboarding = createSelector(
 	[selectSettings],
-	(settings) => settings?.showOnboarding ?? true
+	(settings) => (__DEV__ ? false : (settings?.showOnboarding ?? true))
 );
 
 export const getAutoAuth = createSelector(
@@ -34,5 +34,5 @@ export const getIsOnline = createSelector(
 
 export const getSignedTermsOfUse = createSelector(
 	[selectSettings],
-	(settings) => settings?.signedTermsOfUse ?? false
+	(settings) => (__DEV__ ? true : (settings?.signedTermsOfUse ?? false))
 );
