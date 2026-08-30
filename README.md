@@ -210,3 +210,56 @@ IOS_APP=/absolute/path/pubkyring.app yarn e2e:ios
 # iOS (attach to installed app on a simulator)
 IOS_SIM="iPhone 15" yarn e2e:ios
 ```
+
+## Simulator: Hypercolor / pubkyauth (P6)
+
+Ring registers `pubkyauth` and `pubkyring` (`ios/pubkyring/Info.plist`). Bundle id: `app.pubkyring`.
+
+**Auth URL Ring accepts** (Hypercolor `startAuthFlow` → `authorizationUrl` — do not wrap, do not use `signupWithSecret`):
+
+```
+pubkyauth:///?caps={caps}&secret={secret}&relay={relay}
+```
+
+Also accepted:
+
+| Format | Notes |
+|--------|--------|
+| `pubkyauth://signin?caps=...&secret=...&relay=...` | SDK sign-in intent; converted internally |
+| `pubkyring://signin?caps=...&secret=...&relay=...` | Same as auth |
+| `pubkyring://pubkyauth:///?caps=...&secret=...&relay=...` | Wrapped |
+
+`caps` is comma-separated (`/pub/paykit/:rw`). `secret` is the relay channel secret (base64url). `relay` is the HTTP relay base (URL-encoded).
+
+**Open into a booted iOS Simulator:**
+
+```bash
+xcrun simctl openurl booted "$AUTHORIZATION_URL"
+```
+
+Quote the URL. If a specific device is required:
+
+```bash
+xcrun simctl openurl <UDID> "$AUTHORIZATION_URL"
+```
+
+Appium helper: `e2e/helpers/deeplink.ts` → `openDeepLink(url)`.
+
+**Prerequisite:** at least one **signed-up** pubky in Ring. Debug / `__DEV__` builds auto-select the first signed-up pubky and auto-approve the capability request (no picker, no Authorize tap). Release builds still show both sheets unless Settings → Auto Auth is on.
+
+**Simulator build** (Debug, so `__DEV__` auto-approve is compiled in):
+
+Point `ios/.xcode.env.local` at a real `NODE_BINARY` (Xcode script phases do not load nvm). If the repo is on an external volume, put derived data on the internal disk.
+
+```bash
+yarn install
+cd ios && pod install && cd ..
+xcodebuild -workspace ios/pubkyring.xcworkspace -scheme pubkyring \
+  -configuration Debug \
+  -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' \
+  -derivedDataPath /tmp/pubky-ring-ios-dd \
+  CODE_SIGNING_ALLOWED=NO \
+  build
+```
+
+Install: `xcrun simctl install booted /tmp/pubky-ring-ios-dd/Build/Products/Debug-iphonesimulator/pubkyring.app`

@@ -21,6 +21,7 @@ import {
 	handleNoPubkysAvailable,
 } from './inputHandlerUtils';
 import { handleMigrationScannerClose, resetMigrateAccumulator } from '../utils/actions/migrateAction';
+import { isE2EAutoApproveEnabled } from '../utils/e2eAutoApprove';
 
 interface UseInputHandlerOptions {
 	// The currently selected pubky (for auth actions)
@@ -109,8 +110,8 @@ export const useInputHandler = (options: UseInputHandlerOptions = {}): UseInputH
 					return;
 				}
 
-				if (signedUpPubkyKeys.length === 1) {
-					// Auto-select the only signed up pubky
+				if (signedUpPubkyKeys.length === 1 || isE2EAutoApproveEnabled()) {
+					// Auto-select the only signed up pubky, or the first in Debug/E2E
 					await routeInputWithContext(parsed, signedUpPubkyKeys[0], source, dispatch);
 					return;
 				}

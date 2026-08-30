@@ -244,6 +244,7 @@ const ConfirmAuth = ({ payload }: { payload: ConfirmAuthProps }): ReactElement =
 						{!isAuthorized ? (
 							<>
 								<ActionButton
+                            		testID="ConfirmAuthDenyButton"
                             		style={styles.denyButton}
                             		onPressIn={handleClose}
                             		activeOpacity={0.7}
@@ -252,6 +253,7 @@ const ConfirmAuth = ({ payload }: { payload: ConfirmAuthProps }): ReactElement =
 								</ActionButton>
 
 								<ActionButton
+                            		testID="ConfirmAuthAuthorizeButton"
                             		style={[styles.authorizeButton, authorizing && styles.buttonDisabled]}
                             		onPressIn={handleAuth}
                             		disabled={authorizing}

@@ -51,6 +51,10 @@ jest.mock('../../store-helpers', () => ({
 	getAutoAuthFromStore: jest.fn(),
 }));
 
+jest.mock('../../e2eAutoApprove', () => ({
+	isE2EAutoApproveEnabled: jest.fn(),
+}));
+
 jest.mock('../../constants', () => ({
 	AUTH_SHEET_DELAY: 0,
 }));
@@ -65,6 +69,7 @@ import { SheetManager } from 'react-native-actions-sheet';
 import { performAuth } from '../../pubky';
 import { showToast } from '../../helpers';
 import { getAutoAuthFromStore } from '../../store-helpers';
+import { isE2EAutoApproveEnabled } from '../../e2eAutoApprove';
 
 type AuthActionData = {
 	action: InputAction.Auth;
@@ -112,6 +117,7 @@ describe('authAction', () => {
 			})
 		);
 		(getAutoAuthFromStore as jest.Mock).mockReturnValue(false);
+		(isE2EAutoApproveEnabled as jest.Mock).mockReturnValue(false);
 	});
 
 	afterEach(() => {
@@ -185,6 +191,19 @@ describe('authAction', () => {
 			expect(showToast).toHaveBeenCalledWith(
 				expect.objectContaining({ type: 'error' })
 			);
+		});
+
+		it('should auto-authenticate when Debug/E2E auto-approve is on and settings autoAuth is off', async () => {
+			(getAutoAuthFromStore as jest.Mock).mockReturnValue(false);
+			(isE2EAutoApproveEnabled as jest.Mock).mockReturnValue(true);
+			(performAuth as jest.Mock).mockResolvedValue(createOkResult('success'));
+			const data = createActionData();
+
+			const result = await handleAuthAction(data, mockContext);
+
+			expect(performAuth).toHaveBeenCalled();
+			expect(result.isOk()).toBe(true);
+			expect(SheetManager.show).not.toHaveBeenCalled();
 		});
 	});
 

@@ -44,6 +44,8 @@ if linkage != nil
   use_frameworks! :linkage => linkage.to_sym
 end
 
+project 'pubkyring.xcodeproj'
+
 target 'pubkyring' do
   config = use_native_modules!
 

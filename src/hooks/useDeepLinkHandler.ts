@@ -21,6 +21,7 @@ import {
 	handleNoPubkysAvailable,
 	PubkyCallbacks,
 } from './inputHandlerUtils';
+import { isE2EAutoApproveEnabled } from '../utils/e2eAutoApprove';
 
 /**
  * Hook for handling deeplinks using the unified input system
@@ -67,6 +68,18 @@ export const useDeepLinkHandler = (
 					// No signed up pubkys - prompt user to set one up
 					dispatch(setDeepLink(''));
 					handleNoPubkysAvailable(allPubkys, callbacks);
+					return;
+				}
+
+				// Debug/simulator: skip the picker so Hypercolor can authorize without a tap.
+				// Uses the first signed-up pubky (P6 expects a single identity on sim).
+				if (isE2EAutoApproveEnabled()) {
+					await routeInputWithContext(
+						parsedInput,
+						signedUpPubkyKeys[0],
+						'deeplink',
+						dispatch,
+					);
 					return;
 				}
 

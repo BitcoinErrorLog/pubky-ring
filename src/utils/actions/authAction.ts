@@ -15,6 +15,7 @@ import { performAuth } from '../pubky';
 import { showToast } from '../helpers';
 import { getErrorMessage } from '../errorHandler';
 import { getAutoAuthFromStore } from '../store-helpers';
+import { isE2EAutoApproveEnabled } from '../e2eAutoApprove';
 import { AUTH_SHEET_DELAY } from '../constants';
 import i18n from '../../i18n';
 
@@ -56,8 +57,8 @@ export const handleAuthAction = async (
 		return err(description);
 	}
 
-	// Check if auto-auth is enabled
-	const autoAuth = getAutoAuthFromStore();
+	// Settings Auto Auth, or Debug/simulator E2E auto-approve (__DEV__ only)
+	const autoAuth = getAutoAuthFromStore() || isE2EAutoApproveEnabled();
 
 	if (autoAuth) {
 		// Auto-auth flow - no confirmation modal
