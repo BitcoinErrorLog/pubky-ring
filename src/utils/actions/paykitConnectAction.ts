@@ -60,6 +60,46 @@ import {
 } from '../PubkyNoiseModule';
 
 /**
+ * Custom-scheme callbacks Ring is allowed to open after paykit-connect.
+ * Must stay aligned with AndroidManifest.xml <queries> entries. `https` is
+ * intentionally excluded: an attacker QR could otherwise redirect the
+ * handoff locator (pubky + request_id + homeserver) to an attacker URL.
+ */
+const ALLOWED_PAYKIT_CALLBACK_SCHEMES = new Set([
+	'bitkit',
+	'paykit',
+	'atomicity',
+	'hypercolor',
+]);
+
+const CALLBACK_SCHEME_RE = /^([a-z][a-z0-9+.-]*):\/\//i;
+
+const parseCallbackScheme = (callback: string): string | null => {
+	const match = callback.trim().match(CALLBACK_SCHEME_RE);
+	if (!match) {
+		return null;
+	}
+	return match[1].toLowerCase();
+};
+
+const isAllowedPaykitCallback = (callback: string | undefined): boolean => {
+	if (!callback) {
+		return false;
+	}
+	const scheme = parseCallbackScheme(callback);
+	return scheme !== null && ALLOWED_PAYKIT_CALLBACK_SCHEMES.has(scheme);
+};
+
+const rejectInvalidCallback = (): Result<string> => {
+	showToast({
+		type: 'error',
+		title: i18n.t('common.error'),
+		description: i18n.t('session.invalidCallback'),
+	});
+	return err('Invalid callback URL');
+};
+
+/**
  * Wrapper for put() that properly captures native errors
  * Uses the react-native-pubky library's put function which handles
  * cross-platform native module access correctly.
@@ -237,14 +277,8 @@ export const handlePaykitConnectAction = async (
 		return err('No pubky provided for Paykit connect');
 	}
 
-	// Validate callback URL
-	if (!callback?.includes('://')) {
-		showToast({
-			type: 'error',
-			title: i18n.t('common.error'),
-			description: i18n.t('session.invalidCallback'),
-		});
-		return err('Invalid callback URL');
+	if (!isAllowedPaykitCallback(callback)) {
+		return rejectInvalidCallback();
 	}
 
 	// SECURITY: ephemeralPk is REQUIRED for secure handoff
@@ -543,7 +577,10 @@ const handleSecureHandoff = async ({
 	// This allows the homeserver to store binary data as JSON
 	const handoffPath = `pubky://${pubky}/pub/paykit.app/v0/handoff/${requestId}`;
 	const sb2Wrapper = { sb2: encryptedEnvelopeBase64 };
-	console.log('[PaykitConnectAction] Storing SB2 handoff at:', handoffPath);
+	console.log(
+		'[PaykitConnectAction] Storing SB2 handoff, requestId:',
+		requestId.substring(0, 8)
+	);
 	const putResult = await put(handoffPath, sb2Wrapper, ed25519SecretKey);
 	if (putResult.isErr()) {
 		// Extract all possible error info - handle various error formats
@@ -656,6 +693,13 @@ const completeHandoffCallback = async (
 	callback: string,
 	ed25519SecretKey: string,
 ): Promise<Result<string>> => {
+	if (!isAllowedPaykitCallback(callback)) {
+		return rejectInvalidCallback();
+	}
+
+	const callbackScheme = parseCallbackScheme(callback) ?? 'unknown';
+	const requestIdPrefix = requestId.substring(0, 8);
+
 	// Get the user's homeserver pubkey for the callback
 	const pubkyData = getPubkyDataFromStore(sessionInfo.pubky);
 	const homeserverPubkey = pubkyData?.homeserver || DEFAULT_HOMESERVER;
@@ -670,8 +714,13 @@ const completeHandoffCallback = async (
 	};
 
 	const callbackUrl = buildCallbackUrl(callback, callbackParams);
-	console.log('[PaykitConnectAction] Callback URL:', callbackUrl);
-	console.log('[PaykitConnectAction] Callback params:', JSON.stringify(callbackParams));
+	console.log(
+		'[PaykitConnectAction] Callback URL scheme:',
+		callbackScheme,
+		'requestId:',
+		requestIdPrefix
+	);
+	console.log('[PaykitConnectAction] Callback params: requestId prefix', requestIdPrefix);
 
 	// Open the callback URL
 	const canOpen = await Linking.canOpenURL(callbackUrl);
