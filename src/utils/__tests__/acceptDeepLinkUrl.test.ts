@@ -2,6 +2,8 @@
  * Intake parse rejections must not leak URLs or become unhandled (H-6).
  */
 
+import fs from 'fs';
+import path from 'path';
 import { acceptDeepLinkUrl } from '../acceptDeepLinkUrl';
 import { AUTH_ERROR_LOG_PREFIX } from '../authError';
 
@@ -31,5 +33,17 @@ describe('acceptDeepLinkUrl', () => {
 		const intake = { handleUrl: jest.fn().mockResolvedValue(undefined) };
 		await expect(acceptDeepLinkUrl(intake, 'pubkyauth:///?secret=x')).resolves.toBeUndefined();
 		expect(intake.handleUrl).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('App initial URL failure', () => {
+	it('logs only the bounded intake code, never a raw native error', () => {
+		const source = fs.readFileSync(
+			path.join(__dirname, '../../../App.tsx'),
+			'utf8',
+		);
+		expect(source).toMatch(/logAuthError\('intake'\)/);
+		expect(source).not.toMatch(/Error getting initial URL/);
+		expect(source).not.toMatch(/catch\s*\(\s*err\s*\)/);
 	});
 });

@@ -10,26 +10,36 @@ import { SheetManager } from 'react-native-actions-sheet';
 export const AUTH_FLOW_SHEETS = ['select-pubky', 'confirm-auth', 'camera'] as const;
 
 let currentGeneration = 0;
-let cameraSupersededByExternalDeeplink = false;
+let cameraSessionSeq = 0;
+let openCameraSession: number | null = null;
+let supersededCameraSession: number | null = null;
 
 /**
- * A newer external deeplink is latest-intent-wins. The auth-flow camera
- * (QR scan) may be closed so that request can be handled. This flag lets
- * the camera onClose skip migration side effects for the superseded scan.
- * Unrelated sheets (backup, edit, etc.) are never hidden here.
+ * Open an auth-flow camera session. Deeplink hide only supersedes the
+ * session that was actually open; a later scanner gets a new token.
  */
-export const markCameraSupersededByExternalDeeplink = (): void => {
-	cameraSupersededByExternalDeeplink = true;
+export const beginAuthFlowCameraSession = (): number => {
+	cameraSessionSeq += 1;
+	openCameraSession = cameraSessionSeq;
+	return cameraSessionSeq;
 };
 
-export const consumeCameraSupersededByExternalDeeplink = (): boolean => {
-	const superseded = cameraSupersededByExternalDeeplink;
-	cameraSupersededByExternalDeeplink = false;
-	return superseded;
-};
-
-export const onAuthFlowCameraClosed = (onUserClose: () => void): void => {
-	if (consumeCameraSupersededByExternalDeeplink()) {
+/**
+ * User or hide close for a specific camera session. Only the superseded
+ * session skips migration cleanup. Unrelated / later scanners run normally.
+ */
+export const onAuthFlowCameraClosed = (
+	sessionId: number,
+	onUserClose: () => void,
+): void => {
+	const superseded = supersededCameraSession === sessionId;
+	if (supersededCameraSession === sessionId) {
+		supersededCameraSession = null;
+	}
+	if (openCameraSession === sessionId) {
+		openCameraSession = null;
+	}
+	if (superseded) {
 		return;
 	}
 	onUserClose();
@@ -53,7 +63,9 @@ export const shouldAuthorizeRequest = (generation: number | undefined): boolean 
 };
 
 export const hideAuthFlowSheets = async (): Promise<void> => {
-	markCameraSupersededByExternalDeeplink();
+	if (openCameraSession !== null) {
+		supersededCameraSession = openCameraSession;
+	}
 	await Promise.all(
 		AUTH_FLOW_SHEETS.map((id) => Promise.resolve(SheetManager.hide(id))),
 	);
@@ -67,5 +79,7 @@ export const beginAuthRequest = async (): Promise<number> => {
 
 export const resetRequestGenerationForTests = (): void => {
 	currentGeneration = 0;
-	cameraSupersededByExternalDeeplink = false;
+	cameraSessionSeq = 0;
+	openCameraSession = null;
+	supersededCameraSession = null;
 };

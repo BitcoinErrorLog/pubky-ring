@@ -36,9 +36,13 @@ export const shouldReturnToPreviousApp = (
 	return os === 'android' && isDeeplink === true;
 };
 
+/** Bounded wait so a dropped native UI runnable cannot hang callers. */
+export const NATIVE_RETURN_TIMEOUT_MS = 2000;
+
 /**
  * Background Ring's Android task. Does not finish the activity so a later
  * ACTION_VIEW can be delivered via onNewIntent on the singleTask MainActivity.
+ * Never rejects; a hung native call resolves false after the timeout.
  */
 export const moveTaskToBackground = async (
 	native: AuthReturnNative | undefined = getNative(),
@@ -50,11 +54,24 @@ export const moveTaskToBackground = async (
 	if (!native) {
 		return false;
 	}
+	let timeoutId: ReturnType<typeof setTimeout> | undefined;
 	try {
-		const moved = await native.moveTaskToBack();
+		const timeout = new Promise<boolean>((resolve) => {
+			timeoutId = setTimeout(() => {
+				resolve(false);
+			}, NATIVE_RETURN_TIMEOUT_MS);
+		});
+		const moved = await Promise.race([
+			native.moveTaskToBack(),
+			timeout,
+		]);
 		return moved === true;
 	} catch {
 		return false;
+	} finally {
+		if (timeoutId !== undefined) {
+			clearTimeout(timeoutId);
+		}
 	}
 };
 

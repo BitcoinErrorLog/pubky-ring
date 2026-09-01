@@ -125,6 +125,8 @@ describe('ConfirmAuth render behavior', () => {
 		jest.clearAllMocks();
 		resetRequestGenerationForTests();
 		(performAuth as jest.Mock).mockResolvedValue(ok('success'));
+		const { SheetManager } = require('react-native-actions-sheet');
+		(SheetManager.hide as jest.Mock).mockResolvedValue(undefined);
 	});
 
 	it('does not authorize when the request generation is stale', async () => {
@@ -220,4 +222,56 @@ describe('ConfirmAuth render behavior', () => {
 		expect(performAuth).toHaveBeenCalled();
 		expect(moveTaskToBackground).not.toHaveBeenCalled();
 	});
+
+	it('does not background when a newer request arrives during confirm hide', async () => {
+		const { SheetManager } = require('react-native-actions-sheet');
+		let resolveHide: (() => void) | undefined;
+		const hideDeferred = new Promise<void>((resolve) => {
+			resolveHide = resolve;
+		});
+		(SheetManager.hide as jest.Mock).mockImplementation((id: string) => {
+			if (id === 'confirm-auth') {
+				return hideDeferred;
+			}
+			return Promise.resolve();
+		});
+
+		const current = nextRequestGeneration();
+		const store = createStore();
+		let renderer: ReturnType<typeof create>;
+		await act(async () => {
+			renderer = create(
+				<Provider store={store}>
+					<ConfirmAuth
+						payload={{
+							pubky: 'pk:current',
+							authUrl: 'pubkyauth:///?secret=current',
+							authDetails,
+							onComplete: jest.fn(),
+							returnToCaller: true,
+							requestGeneration: current,
+						}}
+					/>
+				</Provider>,
+			);
+		});
+
+		await act(async () => {
+			const button = findByTestId(renderer!.root, 'ConfirmAuthAuthorizeButton');
+			(button.props.onPressIn ?? button.props.onPress)();
+		});
+
+		expect(performAuth).toHaveBeenCalled();
+		expect(moveTaskToBackground).not.toHaveBeenCalled();
+
+		nextRequestGeneration();
+
+		await act(async () => {
+			resolveHide?.();
+			await hideDeferred;
+		});
+
+		expect(moveTaskToBackground).not.toHaveBeenCalled();
+	});
 });
+

@@ -9,6 +9,7 @@ import {
 	shouldReturnToPreviousApp,
 	moveTaskToBackground,
 	returnToPreviousAppIfNeeded,
+	NATIVE_RETURN_TIMEOUT_MS,
 } from '../returnToCaller';
 import fs from 'fs';
 import path from 'path';
@@ -39,6 +40,8 @@ describe('returnToCaller', () => {
 		expect(native).toMatch(/moveTaskToBack\(true\)/);
 		expect(native).toMatch(/runOnUiThread/);
 		expect(native).toMatch(/resolveOnce\(false\)/);
+		expect(native).toMatch(/isFinishing/);
+		expect(native).toMatch(/isDestroyed/);
 		expect(native).not.toMatch(/getIntent\(/);
 		expect(native).not.toMatch(/startActivity\(/);
 		expect(native).not.toMatch(/Intent\(/);
@@ -85,6 +88,33 @@ describe('returnToCaller', () => {
 			const moveTaskToBack = jest.fn().mockRejectedValue(new Error('fail'));
 			const moved = await moveTaskToBackground({ moveTaskToBack }, 'android');
 			expect(moved).toBe(false);
+		});
+
+		it('resolves false when native never settles', async () => {
+			jest.useFakeTimers();
+			let resolveNative: ((value: boolean) => void) | undefined;
+			const moveTaskToBack = jest.fn(() => new Promise<boolean>((resolve) => {
+				resolveNative = resolve;
+			}));
+			const pending = moveTaskToBackground({ moveTaskToBack }, 'android');
+			await jest.advanceTimersByTimeAsync(NATIVE_RETURN_TIMEOUT_MS);
+			await expect(pending).resolves.toBe(false);
+			resolveNative?.(false);
+			jest.useRealTimers();
+		});
+
+		it('ignores late native resolution after the timeout', async () => {
+			jest.useFakeTimers();
+			let resolveNative: ((value: boolean) => void) | undefined;
+			const moveTaskToBack = jest.fn(() => new Promise<boolean>((resolve) => {
+				resolveNative = resolve;
+			}));
+			const pending = moveTaskToBackground({ moveTaskToBack }, 'android');
+			await jest.advanceTimersByTimeAsync(NATIVE_RETURN_TIMEOUT_MS);
+			await expect(pending).resolves.toBe(false);
+			resolveNative?.(true);
+			await expect(pending).resolves.toBe(false);
+			jest.useRealTimers();
 		});
 	});
 

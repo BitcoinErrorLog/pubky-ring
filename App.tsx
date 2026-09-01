@@ -18,6 +18,7 @@ import { setDeepLink } from './src/store/slices/pubkysSlice.ts';
 import { parseInput } from './src/utils/inputParser.ts';
 import { createDeepLinkIntake } from './src/utils/deepLinkIntake.ts';
 import { acceptDeepLinkUrl } from './src/utils/acceptDeepLinkUrl.ts';
+import { logAuthError } from './src/utils/authError';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
@@ -39,8 +40,8 @@ function App(): React.JSX.Element {
 				if (url) {
 					handleDeepLink(url);
 				}
-			} catch (err) {
-				console.error('Error getting initial URL:', err);
+			} catch {
+				logAuthError('intake');
 			}
 		};
 

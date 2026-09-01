@@ -42,13 +42,18 @@ class PubkyAuthReturnModule(reactContext: ReactApplicationContext) :
 
         try {
             val activity: Activity? = reactApplicationContext.getCurrentActivity()
-            if (activity == null) {
+            if (activity == null || activity.isFinishing || activity.isDestroyed) {
                 resolveOnce(false)
                 return
             }
             activity.runOnUiThread {
                 try {
-                    resolveOnce(activity.moveTaskToBack(true))
+                    val current = reactApplicationContext.getCurrentActivity()
+                    if (current == null || current.isFinishing || current.isDestroyed) {
+                        resolveOnce(false)
+                        return@runOnUiThread
+                    }
+                    resolveOnce(current.moveTaskToBack(true))
                 } catch (_: Exception) {
                     resolveOnce(false)
                 }

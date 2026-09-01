@@ -22,7 +22,8 @@ import {
 } from './inputHandlerUtils';
 import { handleMigrationScannerClose, resetMigrateAccumulator } from '../utils/actions/migrateAction';
 import { isE2EAutoApproveEnabled } from '../utils/e2eAutoApprove';
-import { onAuthFlowCameraClosed } from '../utils/authRequestGeneration';
+import { beginAuthFlowCameraSession, onAuthFlowCameraClosed } from '../utils/authRequestGeneration';
+import { logAuthError } from '../utils/authError';
 
 interface UseInputHandlerOptions {
 	// The currently selected pubky (for auth actions)
@@ -127,8 +128,8 @@ export const useInputHandler = (options: UseInputHandlerOptions = {}): UseInputH
 
 			// Route the input to the appropriate handler
 			await routeInputWithContext(parsed, effectivePubky, source, dispatch);
-		} catch (error) {
-			console.error('Error handling input:', error);
+		} catch {
+			logAuthError('input');
 			showToast({
 				type: 'error',
 				title: i18n.t('common.error'),
@@ -204,6 +205,7 @@ export const useInputHandler = (options: UseInputHandlerOptions = {}): UseInputH
 		};
 
 		return new Promise<void>((resolve) => {
+			const cameraSession = beginAuthFlowCameraSession();
 			SheetManager.show('camera', {
 				payload: {
 					title,
@@ -247,7 +249,7 @@ export const useInputHandler = (options: UseInputHandlerOptions = {}): UseInputH
 						resolve();
 					},
 					onClose: () => {
-						onAuthFlowCameraClosed(() => {
+						onAuthFlowCameraClosed(cameraSession, () => {
 							handleMigrationScannerClose();
 							SheetManager.hide('camera');
 						});

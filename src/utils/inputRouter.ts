@@ -33,6 +33,7 @@ import { handlePaykitConnectAction } from './actions/paykitConnectAction';
 import { handleSignMessageAction } from './actions/signMessageAction';
 import i18n from '../i18n';
 import { getErrorMessage } from './errorHandler';
+import { logAuthError } from './authError';
 
 // Context passed to action handlers
 export interface ActionContext {
@@ -138,15 +139,14 @@ export const routeInput = async (
 		}
 
 		if (isUnknownAction(data)) {
-			console.log('[InputRouter] Unknown input format:', data.params.rawData.substring(0, 100));
+			logAuthError('unknown');
 			return err(i18n.t('errors.unrecognizedFormat'));
 		}
 
 		return err(i18n.t('router.unhandledInputType'));
-	} catch (error) {
-		const errorMessage = error instanceof Error ? error.message : i18n.t('router.unknownRoutingError');
-		console.error('Error routing input:', errorMessage);
-		return err(errorMessage);
+	} catch {
+		logAuthError('input');
+		return err(i18n.t('router.unknownRoutingError'));
 	}
 };
 

@@ -50,7 +50,7 @@ const SelectPubky = ({ payload }: {
 	const pubkys = useSelector(getAllPubkys);
 
 	const closeSheet = useCallback(async (): Promise<void> => {
-		return SheetManager.hide('select-pubky');
+		await SheetManager.hide('select-pubky');
 	}, []);
 
 	const onSelect = payload?.onSelect;

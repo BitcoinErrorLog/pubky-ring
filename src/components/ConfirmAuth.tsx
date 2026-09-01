@@ -179,6 +179,9 @@ const ConfirmAuth = ({ payload }: { payload: ConfirmAuthProps }): ReactElement =
 			onComplete?.();
 			if (returnToCaller) {
 				await SheetManager.hide('confirm-auth');
+				if (!shouldAuthorizeRequest(requestGeneration)) {
+					return;
+				}
 				await moveTaskToBackground();
 			}
 		} catch (e: unknown) {

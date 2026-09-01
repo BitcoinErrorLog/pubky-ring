@@ -55,4 +55,17 @@ describe('logAuthError', () => {
 		expect(spy.mock.calls[0].join(' ')).not.toMatch(/https?:\/\//);
 		spy.mockRestore();
 	});
+
+	it('allowlists intake, unknown, and input without extra payload', () => {
+		const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+		logAuthError('intake');
+		logAuthError('unknown');
+		logAuthError('input');
+		expect(spy.mock.calls).toEqual([
+			[`${AUTH_ERROR_LOG_PREFIX}intake`],
+			[`${AUTH_ERROR_LOG_PREFIX}unknown`],
+			[`${AUTH_ERROR_LOG_PREFIX}input`],
+		]);
+		spy.mockRestore();
+	});
 });

@@ -15,7 +15,9 @@ export type AuthErrorCode =
 	| 'signIn'
 	| 'secretKey'
 	| 'noPubky'
-	| 'intake';
+	| 'intake'
+	| 'unknown'
+	| 'input';
 
 export type AuthErrorI18nKey =
 	| 'auth.timeoutError'
@@ -25,7 +27,8 @@ export type AuthErrorI18nKey =
 	| 'errors.signInFailed'
 	| 'pubkyErrors.failedToGetSecretKey'
 	| 'pubky.noSelection'
-	| 'errors.failedToProcessInput';
+	| 'errors.failedToProcessInput'
+	| 'errors.unrecognizedFormat';
 
 export const AUTH_ERROR_LOG_PREFIX = 'auth_error:';
 
@@ -38,6 +41,8 @@ const CODE_TO_I18N = {
 	secretKey: 'pubkyErrors.failedToGetSecretKey',
 	noPubky: 'pubky.noSelection',
 	intake: 'errors.failedToProcessInput',
+	unknown: 'errors.unrecognizedFormat',
+	input: 'errors.failedToProcessInput',
 } as const satisfies Record<AuthErrorCode, AuthErrorI18nKey>;
 
 const TIMEOUT_PATTERN = /timed?\s*out|timeout/i;

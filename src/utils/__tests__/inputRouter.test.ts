@@ -6,6 +6,7 @@
 
 import { routeInput, actionRequiresPubky, actionRequiresNetwork, ActionContext } from '../inputRouter';
 import { InputAction, ParsedInput } from '../inputParser';
+import { AUTH_ERROR_LOG_PREFIX } from '../authError';
 
 // Mock all action handlers
 jest.mock('../actions/authAction', () => ({
@@ -31,6 +32,9 @@ jest.mock('../actions/paykitConnectAction', () => ({
 }));
 jest.mock('../actions/signMessageAction', () => ({
 	handleSignMessageAction: jest.fn(),
+}));
+jest.mock('../actions/migrateAction', () => ({
+	handleMigrateAction: jest.fn(),
 }));
 jest.mock('../errorHandler', () => ({
 	getErrorMessage: jest.fn((err, fallback) => err?.message || err || fallback),
@@ -255,6 +259,35 @@ describe('inputRouter', () => {
 			expect(result.isErr()).toBe(true);
 		});
 
+		it('does not log raw unknown input that may contain auth material', async () => {
+			const rawData = 'pubkyauth:///?secret=abc123 recovery phrase words';
+			const parsed: ParsedInput = {
+				action: InputAction.Unknown,
+				data: {
+					action: InputAction.Unknown,
+					params: { rawData },
+				},
+				source: 'clipboard',
+				rawInput: rawData,
+			};
+
+			const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+			const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+			const result = await routeInput(parsed, mockContext);
+
+			expect(result.isErr()).toBe(true);
+			const logged = [...logSpy.mock.calls, ...errorSpy.mock.calls]
+				.map((call) => call.map(String).join(' '))
+				.join('\n');
+			expect(logged).toContain(`${AUTH_ERROR_LOG_PREFIX}unknown`);
+			expect(logged).not.toContain('abc123');
+			expect(logged).not.toContain(rawData);
+			expect(logged).not.toContain('recovery phrase');
+			logSpy.mockRestore();
+			errorSpy.mockRestore();
+		});
+
 		it('should set isDeeplink based on source when not provided', async () => {
 			(handleAuthAction as jest.Mock).mockResolvedValue(createOkResult('success'));
 
@@ -284,7 +317,7 @@ describe('inputRouter', () => {
 		});
 
 		it('should handle handler exceptions gracefully', async () => {
-			(handleAuthAction as jest.Mock).mockRejectedValue(new Error('Handler crashed'));
+			(handleAuthAction as jest.Mock).mockRejectedValue(new Error('Handler crashed secret=abc123'));
 
 			const parsed: ParsedInput = {
 				action: InputAction.Auth,
@@ -297,9 +330,15 @@ describe('inputRouter', () => {
 				rawInput: 'pubkyauth://test',
 			};
 
+			const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 			const result = await routeInput(parsed, mockContext);
 
 			expect(result.isErr()).toBe(true);
+			const logged = errorSpy.mock.calls.map((call) => call.map(String).join(' ')).join('\n');
+			expect(logged).toContain(`${AUTH_ERROR_LOG_PREFIX}input`);
+			expect(logged).not.toContain('abc123');
+			expect(logged).not.toContain('Handler crashed');
+			errorSpy.mockRestore();
 		});
 	});
 
