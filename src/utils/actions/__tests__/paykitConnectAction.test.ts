@@ -197,7 +197,75 @@ describe('paykitConnectAction', () => {
 			const result = await handlePaykitConnectAction(data, mockContext);
 
 			expect(result.isErr()).toBe(true);
+			expect(signInToHomeserver).not.toHaveBeenCalled();
+			expect(showToast).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: 'error',
+					description: 'session.invalidCallback',
+				})
+			);
 		});
+
+		it('should reject when callback is missing', async () => {
+			const data = createActionData({ callback: undefined as unknown as string });
+
+			const result = await handlePaykitConnectAction(data, mockContext);
+
+			expect(result.isErr()).toBe(true);
+			expect(signInToHomeserver).not.toHaveBeenCalled();
+			expect(showToast).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: 'error',
+					description: 'session.invalidCallback',
+				})
+			);
+		});
+
+		it('should reject https callback URLs', async () => {
+			const data = createActionData({ callback: 'https://evil.example/cb' });
+
+			const result = await handlePaykitConnectAction(data, mockContext);
+
+			expect(result.isErr()).toBe(true);
+			expect(signInToHomeserver).not.toHaveBeenCalled();
+			expect(showToast).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: 'error',
+					description: 'session.invalidCallback',
+				})
+			);
+		});
+
+		it('should reject javascript callback URLs', async () => {
+			const data = createActionData({ callback: 'javascript://alert(1)' });
+
+			const result = await handlePaykitConnectAction(data, mockContext);
+
+			expect(result.isErr()).toBe(true);
+			expect(signInToHomeserver).not.toHaveBeenCalled();
+			expect(showToast).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: 'error',
+					description: 'session.invalidCallback',
+				})
+			);
+		});
+
+		it.each(['bitkit', 'paykit', 'atomicity', 'hypercolor'])(
+			'should accept %s callback scheme',
+			async (scheme) => {
+				const data = createActionData({ callback: `${scheme}://paykit-setup` });
+
+				await handlePaykitConnectAction(data, mockContext);
+
+				expect(signInToHomeserver).toHaveBeenCalled();
+				expect(showToast).not.toHaveBeenCalledWith(
+					expect.objectContaining({
+						description: 'session.invalidCallback',
+					})
+				);
+			}
+		);
 
 		it('should reject when ephemeralPk is missing', async () => {
 			const data = createActionData({ ephemeralPk: undefined });
