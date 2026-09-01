@@ -26,6 +26,26 @@ describe('returnToCaller', () => {
 		expect(imports).not.toMatch(/Linking/);
 		expect(source).not.toMatch(/callback=/);
 	});
+
+	it('uses the RN 0.83 Activity API and never inspects or launches a URI', () => {
+		const native = fs.readFileSync(
+			path.join(
+				__dirname,
+				'../../../android/app/src/main/java/to/pubkyring/PubkyAuthReturnModule.kt',
+			),
+			'utf8',
+		);
+		expect(native).toMatch(/reactApplicationContext\.getCurrentActivity\(\)/);
+		expect(native).toMatch(/moveTaskToBack\(true\)/);
+		expect(native).toMatch(/runOnUiThread/);
+		expect(native).toMatch(/resolveOnce\(false\)/);
+		expect(native).not.toMatch(/getIntent\(/);
+		expect(native).not.toMatch(/startActivity\(/);
+		expect(native).not.toMatch(/Intent\(/);
+		expect(native).not.toMatch(/Linking/);
+		expect(native).not.toMatch(/console\./);
+		expect(native).not.toMatch(/promise\.reject/);
+	});
 	describe('shouldReturnToPreviousApp', () => {
 		it('returns true only for Android external deeplink launches', () => {
 			expect(shouldReturnToPreviousApp(true, 'android')).toBe(true);
