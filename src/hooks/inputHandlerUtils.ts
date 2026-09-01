@@ -9,10 +9,13 @@ import { Dispatch } from 'redux';
 import { SheetManager } from 'react-native-actions-sheet';
 import { ParsedInput, InputSource, InputAction } from '../utils/inputParser';
 import { routeInput, actionRequiresPubky, ActionContext } from '../utils/inputRouter';
-import { setDeepLink } from '../store/slices/pubkysSlice';
 import { copyToClipboard } from '../utils/clipboard';
 import { showToast, sleep } from '../utils/helpers';
 import { getErrorMessage } from '../utils/errorHandler';
+import {
+	DeepLinkOwnership,
+	tryClearOwnedDeepLink,
+} from '../utils/ownedDeepLink';
 import i18n from '../i18n';
 
 export interface PubkyCallbacks {
@@ -27,11 +30,13 @@ export const routeInputWithContext = async (
 	parsed: ParsedInput,
 	effectivePubky: string | undefined,
 	source: InputSource,
-	dispatch: Dispatch
+	dispatch: Dispatch,
+	ownership?: DeepLinkOwnership,
 ): Promise<void> => {
-	// Clear deeplink BEFORE processing to prevent re-triggering
 	if (source === 'deeplink') {
-		dispatch(setDeepLink(''));
+		if (!ownership || !tryClearOwnedDeepLink(dispatch, ownership)) {
+			return;
+		}
 	}
 
 	const context: ActionContext = {
@@ -81,64 +86,109 @@ export type ShowPubkySelectionOptions = {
 	isCurrent?: () => boolean;
 };
 
+export type PubkySelectionOutcome =
+	| { kind: 'selected'; pubky: string }
+	| { kind: 'dismissed' }
+	| { kind: 'replaced' }
+	| { kind: 'stale' };
+
+type ActivePicker = {
+	id: number;
+	settle: (outcome: PubkySelectionOutcome) => void;
+};
+
+let pickerSeq = 0;
+let activePicker: ActivePicker | null = null;
+
+const replaceActivePicker = (): void => {
+	if (!activePicker) {
+		return;
+	}
+	const previous = activePicker;
+	activePicker = null;
+	previous.settle({ kind: 'replaced' });
+};
+
+export const resetPickerSessionForTests = (): void => {
+	replaceActivePicker();
+	pickerSeq = 0;
+};
+
 /**
- * Shows pubky selection sheet for multi-pubky scenarios
- * Returns the selected pubky, or null if user dismisses without selecting.
+ * Shows pubky selection sheet for multi-pubky scenarios.
  *
  * Hide/onClose always fires after a tap as well as a dismiss. A real selection
- * must settle first so the close handler cannot resolve null.
+ * must settle first so the close handler cannot resolve dismissed.
  *
- * Does not clear the deeplink. The owning caller clears after await, and only
- * when it still owns the current generation.
+ * Every invocation is owned. Starting a newer picker settles the previous
+ * promise with `replaced` so scan/clipboard vs deeplink cannot hang.
+ * Does not clear the deeplink.
  */
 export const showPubkySelectionSheet = async (
 	_parsed: ParsedInput,
 	options: ShowPubkySelectionOptions = {},
-): Promise<string | null> => {
+): Promise<PubkySelectionOutcome> => {
 	const isCurrent = options.isCurrent ?? ((): boolean => true);
+	const id = ++pickerSeq;
+	let settled = false;
+	let resolveResult: (outcome: PubkySelectionOutcome) => void = (): void => {};
 
-	await SheetManager.hide('select-pubky');
-	if (!isCurrent()) {
-		return null;
-	}
-	await sleep(150);
-	if (!isCurrent()) {
-		return null;
-	}
+	const result = new Promise<PubkySelectionOutcome>((resolve) => {
+		resolveResult = resolve;
+	});
 
-	return new Promise((resolve) => {
-		let settled = false;
-
-		const settle = (pubky: string | null): void => {
-			if (settled) {
-				return;
-			}
-			settled = true;
-			resolve(pubky);
-		};
-
-		if (!isCurrent()) {
-			settle(null);
+	const settleOutcome = (outcome: PubkySelectionOutcome): void => {
+		if (settled) {
 			return;
 		}
+		settled = true;
+		if (activePicker?.id === id) {
+			activePicker = null;
+		}
+		resolveResult(outcome);
+	};
 
-		SheetManager.show('select-pubky', {
-			payload: {
-				onSelect: (selectedPubky: string): void => {
-					if (settled) {
-						return;
-					}
-					settled = true;
-					Promise.resolve(SheetManager.hide('select-pubky')).finally(() => {
-						resolve(selectedPubky);
-					});
-				},
+	replaceActivePicker();
+	activePicker = { id, settle: settleOutcome };
+
+	await SheetManager.hide('select-pubky');
+	if (settled) {
+		return result;
+	}
+	if (!isCurrent()) {
+		settleOutcome({ kind: 'stale' });
+		return result;
+	}
+	await sleep(150);
+	if (settled) {
+		return result;
+	}
+	if (!isCurrent()) {
+		settleOutcome({ kind: 'stale' });
+		return result;
+	}
+
+	SheetManager.show('select-pubky', {
+		payload: {
+			onSelect: (selectedPubky: string): void => {
+				if (settled) {
+					return;
+				}
+				settled = true;
+				if (activePicker?.id === id) {
+					activePicker = null;
+				}
+				Promise.resolve(SheetManager.hide('select-pubky')).finally(() => {
+					resolveResult({ kind: 'selected', pubky: selectedPubky });
+				});
 			},
-			onClose: (): void => {
-				settle(null);
-			},
-		});
+		},
+		onClose: (): void => {
+			settleOutcome({ kind: 'dismissed' });
+		},
 	});
+
+	return result;
 };
 
 /**
@@ -184,10 +234,10 @@ export const handleNoPubkysAvailable = (
  */
 export const resolvePubkyForAction = async (
 	parsed: ParsedInput,
-	source: InputSource,
+	_source: InputSource,
 	signedUpPubkys: Record<string, unknown>,
 	allPubkys: Record<string, unknown>,
-	dispatch: Dispatch,
+	_dispatch: Dispatch,
 	callbacks?: PubkyCallbacks
 ): Promise<{ pubky: string | null; handled: boolean }> => {
 	if (!actionRequiresPubky(parsed.action)) {
@@ -198,9 +248,6 @@ export const resolvePubkyForAction = async (
 
 	if (signedUpPubkyKeys.length === 0) {
 		handleNoPubkysAvailable(allPubkys, callbacks);
-		if (source === 'deeplink') {
-			dispatch(setDeepLink(''));
-		}
 		return { pubky: null, handled: true };
 	}
 

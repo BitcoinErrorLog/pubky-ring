@@ -2,11 +2,15 @@
  * Last-arrival-wins intake for Linking URLs.
  *
  * parseInput is async; a slower older parse must not overwrite a newer URL.
- * Identical in-flight / just-stored URLs are dropped so getInitialURL + the
- * url event do not process the same string twice.
+ * Identical URLs are dropped only while a parse is in flight or inside a
+ * short window after store — enough for overlapping getInitialURL + url
+ * delivery. acknowledgeDeepLinkConsumed() (or the window expiring) allows
+ * a legitimate identical retry after deny/cancel.
  */
 
 import { ParsedInput, InputSource } from './inputParser';
+
+export const DEEPLINK_DEDUPE_WINDOW_MS = 500;
 
 export type DeepLinkParseFn = (
 	url: string,
@@ -15,6 +19,22 @@ export type DeepLinkParseFn = (
 
 export type DeepLinkIntake = {
 	handleUrl: (url: string) => Promise<void>;
+};
+
+let lastStoredUrl: string | null = null;
+let lastStoredAt = 0;
+
+const isWithinDedupeWindow = (url: string, now: number): boolean => {
+	return lastStoredUrl === url && now - lastStoredAt < DEEPLINK_DEDUPE_WINDOW_MS;
+};
+
+export const acknowledgeDeepLinkConsumed = (): void => {
+	lastStoredUrl = null;
+	lastStoredAt = 0;
+};
+
+export const resetDeepLinkIntakeForTests = (): void => {
+	acknowledgeDeepLinkConsumed();
 };
 
 export const createDeepLinkIntake = ({
@@ -26,14 +46,14 @@ export const createDeepLinkIntake = ({
 }): DeepLinkIntake => {
 	let seq = 0;
 	let inFlightUrl: string | null = null;
-	let lastStoredUrl: string | null = null;
 
 	return {
 		handleUrl: async (url: string): Promise<void> => {
 			if (!url) {
 				return;
 			}
-			if (url === inFlightUrl || url === lastStoredUrl) {
+			const now = Date.now();
+			if (url === inFlightUrl || isWithinDedupeWindow(url, now)) {
 				return;
 			}
 
@@ -45,6 +65,7 @@ export const createDeepLinkIntake = ({
 					return;
 				}
 				lastStoredUrl = url;
+				lastStoredAt = Date.now();
 				storeParsed(parsed);
 			} finally {
 				if (requestId === seq) {

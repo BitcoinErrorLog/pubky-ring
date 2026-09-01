@@ -6,8 +6,9 @@
 
 import { SheetManager } from 'react-native-actions-sheet';
 import { InputAction, ParsedInput } from '../../utils/inputParser';
-import { setDeepLink } from '../../store/slices/pubkysSlice';
+import { clearDeepLinkIfMatch } from '../../store/slices/pubkysSlice';
 import { routeInput } from '../../utils/inputRouter';
+import { resetPickerSessionForTests } from '../inputHandlerUtils';
 import {
 	nextRequestGeneration,
 	resetRequestGenerationForTests,
@@ -47,6 +48,10 @@ jest.mock('../../utils/errorHandler', () => ({
 jest.mock('../../i18n', () => ({
 	default: { t: (key: string) => key },
 	t: (key: string) => key,
+}));
+
+jest.mock('../../utils/store-helpers', () => ({
+	getStore: jest.fn(() => ({ pubky: { deepLink: '', pubkys: {} } })),
 }));
 
 type ShowOptions = {
@@ -92,6 +97,7 @@ describe('processStoredDeepLink interleaving', () => {
 		sleepResolvers.length = 0;
 		openPickers = [];
 		resetRequestGenerationForTests();
+		resetPickerSessionForTests();
 		(routeInput as jest.Mock).mockResolvedValue({
 			isOk: () => true,
 			isErr: () => false,
@@ -112,6 +118,8 @@ describe('processStoredDeepLink interleaving', () => {
 	});
 
 	it('keeps deeplink B current after A onClose and routes B', async () => {
+		let stored = JSON.stringify(parsedA);
+		const getStoredDeepLink = (): string => stored;
 		const genA = nextRequestGeneration();
 		const processA = processStoredDeepLink({
 			deepLink: JSON.stringify(parsedA),
@@ -120,11 +128,13 @@ describe('processStoredDeepLink interleaving', () => {
 			signedUpPubkys,
 			allPubkys: signedUpPubkys,
 			callbacks: {},
+			getStoredDeepLink,
 		});
 		await flushMicrotasks();
 		await flushSleep();
 		expect(openPickers).toHaveLength(1);
 
+		stored = JSON.stringify(parsedB);
 		const genB = nextRequestGeneration();
 		const processB = processStoredDeepLink({
 			deepLink: JSON.stringify(parsedB),
@@ -133,10 +143,13 @@ describe('processStoredDeepLink interleaving', () => {
 			signedUpPubkys,
 			allPubkys: signedUpPubkys,
 			callbacks: {},
+			getStoredDeepLink,
 		});
 		await flushMicrotasks();
 
-		expect(dispatch).not.toHaveBeenCalledWith(setDeepLink(''));
+		expect(dispatch).not.toHaveBeenCalledWith(
+			clearDeepLinkIfMatch(JSON.stringify(parsedB)),
+		);
 
 		await flushSleep();
 		expect(openPickers).toHaveLength(1);
@@ -153,10 +166,14 @@ describe('processStoredDeepLink interleaving', () => {
 				isDeeplink: true,
 			}),
 		);
-		expect(dispatch).toHaveBeenCalledWith(setDeepLink(''));
+		expect(dispatch).toHaveBeenCalledWith(
+			clearDeepLinkIfMatch(JSON.stringify(parsedB)),
+		);
 	});
 
 	it('does not show picker A when B arrives during the delay', async () => {
+		let stored = JSON.stringify(parsedA);
+		const getStoredDeepLink = (): string => stored;
 		const genA = nextRequestGeneration();
 		const processA = processStoredDeepLink({
 			deepLink: JSON.stringify(parsedA),
@@ -165,10 +182,12 @@ describe('processStoredDeepLink interleaving', () => {
 			signedUpPubkys,
 			allPubkys: signedUpPubkys,
 			callbacks: {},
+			getStoredDeepLink,
 		});
 		await flushMicrotasks();
 		expect(SheetManager.show).not.toHaveBeenCalled();
 
+		stored = JSON.stringify(parsedB);
 		const genB = nextRequestGeneration();
 		const processB = processStoredDeepLink({
 			deepLink: JSON.stringify(parsedB),
@@ -177,6 +196,7 @@ describe('processStoredDeepLink interleaving', () => {
 			signedUpPubkys,
 			allPubkys: signedUpPubkys,
 			callbacks: {},
+			getStoredDeepLink,
 		});
 		await flushMicrotasks();
 
@@ -198,6 +218,7 @@ describe('processStoredDeepLink interleaving', () => {
 	});
 
 	it('does not restart or strand the picker when the pubkys slice identity changes', async () => {
+		const stored = JSON.stringify(parsedA);
 		const genA = nextRequestGeneration();
 		const processA = processStoredDeepLink({
 			deepLink: JSON.stringify(parsedA),
@@ -206,6 +227,7 @@ describe('processStoredDeepLink interleaving', () => {
 			signedUpPubkys,
 			allPubkys: signedUpPubkys,
 			callbacks: {},
+			getStoredDeepLink: (): string => stored,
 		});
 		await flushMicrotasks();
 		await flushSleep();
@@ -224,6 +246,8 @@ describe('processStoredDeepLink interleaving', () => {
 			expect.objectContaining({ pubky: 'pk:one' }),
 		);
 		expect(SheetManager.show).toHaveBeenCalledTimes(1);
-		expect(dispatch).toHaveBeenCalledWith(setDeepLink(''));
+		expect(dispatch).toHaveBeenCalledWith(
+			clearDeepLinkIfMatch(JSON.stringify(parsedA)),
+		);
 	});
 });

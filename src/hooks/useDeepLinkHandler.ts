@@ -60,6 +60,5 @@ export const useDeepLinkHandler = (
 			callbacks,
 		});
 		// signedUpPubkys identity changes must not restart an open picker.
-		 
 	}, [deepLink, dispatch]);
 };

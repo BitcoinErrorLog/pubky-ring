@@ -46,6 +46,11 @@ const pubkysSlice = createSlice({
 		setDeepLink: (state, action: PayloadAction<string>) => {
 			state.deepLink = action.payload;
 		},
+		clearDeepLinkIfMatch: (state, action: PayloadAction<string>) => {
+			if (state.deepLink === action.payload) {
+				state.deepLink = '';
+			}
+		},
 		setHomeserver: (state, action: PayloadAction<{ pubky: string; homeserver: string }>) => {
 			const { pubky, homeserver } = action.payload;
 			if (state.pubkys[pubky]) {
@@ -106,6 +111,7 @@ export const {
 	setName,
 	setPubkyData,
 	setDeepLink,
+	clearDeepLinkIfMatch,
 	setHomeserver,
 	setSignedUp,
 	addSession,

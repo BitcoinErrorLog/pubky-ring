@@ -6,10 +6,10 @@
  */
 
 import { Dispatch } from 'redux';
-import { setDeepLink } from '../store/slices/pubkysSlice';
 import { ParsedInput } from '../utils/inputParser';
 import { actionRequiresPubky } from '../utils/inputRouter';
 import { hideAuthFlowSheets, isCurrentRequest } from '../utils/authRequestGeneration';
+import { tryClearOwnedDeepLink } from '../utils/ownedDeepLink';
 import { isE2EAutoApproveEnabled } from '../utils/e2eAutoApprove';
 import {
 	handleNoPubkysAvailable,
@@ -25,6 +25,7 @@ export type ProcessStoredDeepLinkArgs = {
 	signedUpPubkys: Record<string, unknown>;
 	allPubkys: Record<string, unknown>;
 	callbacks: PubkyCallbacks;
+	getStoredDeepLink?: () => string;
 };
 
 export const processStoredDeepLink = async ({
@@ -34,23 +35,21 @@ export const processStoredDeepLink = async ({
 	signedUpPubkys,
 	allPubkys,
 	callbacks,
+	getStoredDeepLink,
 }: ProcessStoredDeepLinkArgs): Promise<void> => {
 	const isCurrent = (): boolean => isCurrentRequest(generation);
+	const ownership = { generation, ownedDeepLink: deepLink, getStoredDeepLink };
 
 	let parsedInput: ParsedInput;
 	try {
 		parsedInput = JSON.parse(deepLink);
 	} catch {
-		if (isCurrent()) {
-			dispatch(setDeepLink(''));
-		}
+		tryClearOwnedDeepLink(dispatch, ownership);
 		return;
 	}
 
 	if (!parsedInput.action || !parsedInput.data) {
-		if (isCurrent()) {
-			dispatch(setDeepLink(''));
-		}
+		tryClearOwnedDeepLink(dispatch, ownership);
 		return;
 	}
 
@@ -70,7 +69,7 @@ export const processStoredDeepLink = async ({
 			if (!isCurrent()) {
 				return;
 			}
-			dispatch(setDeepLink(''));
+			tryClearOwnedDeepLink(dispatch, ownership);
 			handleNoPubkysAvailable(allPubkys, callbacks);
 			return;
 		}
@@ -84,19 +83,29 @@ export const processStoredDeepLink = async ({
 				signedUpPubkyKeys[0],
 				'deeplink',
 				dispatch,
+				ownership,
 			);
 			return;
 		}
 
-		const selectedPubky = await showPubkySelectionSheet(parsedInput, { isCurrent });
+		const outcome = await showPubkySelectionSheet(parsedInput, { isCurrent });
 		if (!isCurrent()) {
 			return;
 		}
-		if (selectedPubky) {
-			await routeInputWithContext(parsedInput, selectedPubky, 'deeplink', dispatch);
+		if (outcome.kind === 'replaced' || outcome.kind === 'stale') {
 			return;
 		}
-		dispatch(setDeepLink(''));
+		if (outcome.kind === 'selected') {
+			await routeInputWithContext(
+				parsedInput,
+				outcome.pubky,
+				'deeplink',
+				dispatch,
+				ownership,
+			);
+			return;
+		}
+		tryClearOwnedDeepLink(dispatch, ownership);
 		return;
 	}
 
@@ -104,5 +113,5 @@ export const processStoredDeepLink = async ({
 		return;
 	}
 
-	await routeInputWithContext(parsedInput, undefined, 'deeplink', dispatch);
+	await routeInputWithContext(parsedInput, undefined, 'deeplink', dispatch, ownership);
 };

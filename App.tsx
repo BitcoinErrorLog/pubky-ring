@@ -17,6 +17,7 @@ import { checkNetworkConnection, showToast } from './src/utils/helpers.ts';
 import { setDeepLink } from './src/store/slices/pubkysSlice.ts';
 import { parseInput } from './src/utils/inputParser.ts';
 import { createDeepLinkIntake } from './src/utils/deepLinkIntake.ts';
+import { acceptDeepLinkUrl } from './src/utils/acceptDeepLinkUrl.ts';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
@@ -51,7 +52,7 @@ function App(): React.JSX.Element {
 		});
 
 		const handleDeepLink = async (url: string): Promise<void> => {
-			await intake.handleUrl(url);
+			await acceptDeepLinkUrl(intake, url);
 		};
 
 		// Set up deep link listeners for when app is already running

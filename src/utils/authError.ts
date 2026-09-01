@@ -14,11 +14,22 @@ export type AuthErrorCode =
 	| 'process'
 	| 'signIn'
 	| 'secretKey'
-	| 'noPubky';
+	| 'noPubky'
+	| 'intake';
+
+export type AuthErrorI18nKey =
+	| 'auth.timeoutError'
+	| 'errors.authorizationFailed'
+	| 'errors.failedToParseAuth'
+	| 'errors.failedToProcessAuth'
+	| 'errors.signInFailed'
+	| 'pubkyErrors.failedToGetSecretKey'
+	| 'pubky.noSelection'
+	| 'errors.failedToProcessInput';
 
 export const AUTH_ERROR_LOG_PREFIX = 'auth_error:';
 
-const CODE_TO_I18N: Record<AuthErrorCode, string> = {
+const CODE_TO_I18N = {
 	timeout: 'auth.timeoutError',
 	failed: 'errors.authorizationFailed',
 	parse: 'errors.failedToParseAuth',
@@ -26,7 +37,8 @@ const CODE_TO_I18N: Record<AuthErrorCode, string> = {
 	signIn: 'errors.signInFailed',
 	secretKey: 'pubkyErrors.failedToGetSecretKey',
 	noPubky: 'pubky.noSelection',
-};
+	intake: 'errors.failedToProcessInput',
+} as const satisfies Record<AuthErrorCode, AuthErrorI18nKey>;
 
 const TIMEOUT_PATTERN = /timed?\s*out|timeout/i;
 

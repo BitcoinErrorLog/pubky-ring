@@ -22,6 +22,7 @@ import {
 } from './inputHandlerUtils';
 import { handleMigrationScannerClose, resetMigrateAccumulator } from '../utils/actions/migrateAction';
 import { isE2EAutoApproveEnabled } from '../utils/e2eAutoApprove';
+import { onAuthFlowCameraClosed } from '../utils/authRequestGeneration';
 
 interface UseInputHandlerOptions {
 	// The currently selected pubky (for auth actions)
@@ -117,9 +118,9 @@ export const useInputHandler = (options: UseInputHandlerOptions = {}): UseInputH
 				}
 
 				// Multiple pubkys - show selection sheet
-				const selectedPubky = await showPubkySelectionSheet(parsed);
-				if (selectedPubky) {
-					await routeInputWithContext(parsed, selectedPubky, source, dispatch);
+				const outcome = await showPubkySelectionSheet(parsed);
+				if (outcome.kind === 'selected') {
+					await routeInputWithContext(parsed, outcome.pubky, source, dispatch);
 				}
 				return;
 			}
@@ -246,9 +247,10 @@ export const useInputHandler = (options: UseInputHandlerOptions = {}): UseInputH
 						resolve();
 					},
 					onClose: () => {
-						// Handle any partial migration (shows summary if keys were imported, then resets)
-						handleMigrationScannerClose();
-						SheetManager.hide('camera');
+						onAuthFlowCameraClosed(() => {
+							handleMigrationScannerClose();
+							SheetManager.hide('camera');
+						});
 						resolve();
 					},
 				},

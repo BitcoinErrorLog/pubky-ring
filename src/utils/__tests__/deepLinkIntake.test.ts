@@ -1,9 +1,14 @@
 /**
- * Last-arrival-wins deeplink intake (Kimi H2).
+ * Last-arrival-wins deeplink intake (H-1).
  */
 
 import { InputAction, ParsedInput } from '../inputParser';
-import { createDeepLinkIntake } from '../deepLinkIntake';
+import {
+	acknowledgeDeepLinkConsumed,
+	createDeepLinkIntake,
+	DEEPLINK_DEDUPE_WINDOW_MS,
+	resetDeepLinkIntakeForTests,
+} from '../deepLinkIntake';
 
 const makeParsed = (url: string): ParsedInput => ({
 	action: InputAction.Auth,
@@ -17,6 +22,16 @@ const makeParsed = (url: string): ParsedInput => ({
 });
 
 describe('createDeepLinkIntake', () => {
+	beforeEach(() => {
+		jest.useFakeTimers();
+		jest.setSystemTime(0);
+		resetDeepLinkIntakeForTests();
+	});
+
+	afterEach(() => {
+		jest.useRealTimers();
+	});
+
 	it('stores B when A resolves last', async () => {
 		let resolveA: ((parsed: ParsedInput) => void) | undefined;
 		let resolveB: ((parsed: ParsedInput) => void) | undefined;
@@ -91,7 +106,7 @@ describe('createDeepLinkIntake', () => {
 		expect(storeParsed).toHaveBeenCalledTimes(1);
 	});
 
-	it('dedupes an identical URL that was just stored', async () => {
+	it('drops an immediate duplicate after store (overlapping getInitialURL/url)', async () => {
 		const parseInput = jest.fn(async (url: string) => makeParsed(url));
 		const storeParsed = jest.fn();
 		const intake = createDeepLinkIntake({ parseInput, storeParsed });
@@ -101,5 +116,31 @@ describe('createDeepLinkIntake', () => {
 
 		expect(parseInput).toHaveBeenCalledTimes(1);
 		expect(storeParsed).toHaveBeenCalledTimes(1);
+	});
+
+	it('accepts an identical retry after the dedupe window expires', async () => {
+		const parseInput = jest.fn(async (url: string) => makeParsed(url));
+		const storeParsed = jest.fn();
+		const intake = createDeepLinkIntake({ parseInput, storeParsed });
+
+		await intake.handleUrl('pubkyauth:///?secret=same');
+		jest.setSystemTime(DEEPLINK_DEDUPE_WINDOW_MS + 1);
+		await intake.handleUrl('pubkyauth:///?secret=same');
+
+		expect(parseInput).toHaveBeenCalledTimes(2);
+		expect(storeParsed).toHaveBeenCalledTimes(2);
+	});
+
+	it('accepts an identical retry immediately after consumption acknowledgement', async () => {
+		const parseInput = jest.fn(async (url: string) => makeParsed(url));
+		const storeParsed = jest.fn();
+		const intake = createDeepLinkIntake({ parseInput, storeParsed });
+
+		await intake.handleUrl('pubkyauth:///?secret=same');
+		acknowledgeDeepLinkConsumed();
+		await intake.handleUrl('pubkyauth:///?secret=same');
+
+		expect(parseInput).toHaveBeenCalledTimes(2);
+		expect(storeParsed).toHaveBeenCalledTimes(2);
 	});
 });

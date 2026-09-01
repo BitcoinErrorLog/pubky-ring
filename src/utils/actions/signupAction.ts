@@ -137,21 +137,20 @@ export const handleSignupAction = async (
 					);
 				} else {
 					// Multiple pubkys: show selector, then forward to auth
-					const selectedPubky = await showPubkySelectionSheet({
+					const outcome = await showPubkySelectionSheet({
 						action: InputAction.Auth,
 						data: authData,
 						source: 'scan',
 						rawInput: authUrl,
 					});
 
-					if (!selectedPubky) {
-						// User dismissed without selecting - return error
+					if (outcome.kind !== 'selected') {
 						return err('User cancelled pubky selection');
 					}
 
 					return await handleAuthAction(
 						authData,
-						{ ...context, pubky: selectedPubky, isDeeplink: false }
+						{ ...context, pubky: outcome.pubky, isDeeplink: false }
 					);
 				}
 			}
