@@ -47,6 +47,7 @@ declare module 'react-native-actions-sheet' {
 				authDetails: unknown;
 				onComplete?: () => void;
 				returnToCaller?: boolean;
+				requestGeneration?: number;
 			};
 		}>;
 		'delete-pubky': SheetDefinition;

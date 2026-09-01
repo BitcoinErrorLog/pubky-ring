@@ -16,6 +16,7 @@ import { updateIsOnline } from './src/store/slices/settingsSlice.ts';
 import { checkNetworkConnection, showToast } from './src/utils/helpers.ts';
 import { setDeepLink } from './src/store/slices/pubkysSlice.ts';
 import { parseInput } from './src/utils/inputParser.ts';
+import { createDeepLinkIntake } from './src/utils/deepLinkIntake.ts';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
@@ -42,10 +43,15 @@ function App(): React.JSX.Element {
 			}
 		};
 
-		// Handle the deep link using the unified input parser
+		const intake = createDeepLinkIntake({
+			parseInput,
+			storeParsed: (parsedInput): void => {
+				dispatch(setDeepLink(JSON.stringify(parsedInput)));
+			},
+		});
+
 		const handleDeepLink = async (url: string): Promise<void> => {
-			const parsedInput = await parseInput(url, 'deeplink');
-			dispatch(setDeepLink(JSON.stringify(parsedInput)));
+			await intake.handleUrl(url);
 		};
 
 		// Set up deep link listeners for when app is already running

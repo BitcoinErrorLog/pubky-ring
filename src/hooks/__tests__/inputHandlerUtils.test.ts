@@ -1,9 +1,8 @@
 /**
  * Tests for pubky selection sheet settle semantics.
  *
- * Reproduced bug: hiding the picker fires onClose, which resolved null and
- * cleared the deeplink while a delayed routeInput was still pending, tearing
- * down ConfirmAuth. Selection must win over the close handler.
+ * Selection must win over the close handler. The sheet itself must not
+ * clear the deeplink — that belongs to the owning caller.
  */
 
 import { SheetManager } from 'react-native-actions-sheet';
@@ -58,9 +57,13 @@ const getShowOptions = (): ShowOptions => {
 	return showMock.mock.calls[showMock.mock.calls.length - 1][1] as ShowOptions;
 };
 
-describe('showPubkySelectionSheet', () => {
-	const dispatch = jest.fn();
+const flushShow = async (): Promise<void> => {
+	await Promise.resolve();
+	await Promise.resolve();
+	await Promise.resolve();
+};
 
+describe('showPubkySelectionSheet', () => {
 	beforeEach(() => {
 		jest.clearAllMocks();
 		(SheetManager.hide as jest.Mock).mockResolvedValue(undefined);
@@ -69,30 +72,33 @@ describe('showPubkySelectionSheet', () => {
 	});
 
 	it('resolves the selected pubky when onClose fires after a real selection', async () => {
-		const resultPromise = showPubkySelectionSheet(parsed, 'deeplink', dispatch);
-		await Promise.resolve();
-		await Promise.resolve();
+		const resultPromise = showPubkySelectionSheet(parsed);
+		await flushShow();
 
 		const options = getShowOptions();
 		options.payload.onSelect('pk:selected');
 		options.onClose();
 
 		await expect(resultPromise).resolves.toBe('pk:selected');
-		expect(dispatch).not.toHaveBeenCalledWith(setDeepLink(''));
 	});
 
 	it('does not let a late onClose cancel a selection already in flight', async () => {
 		let resolveHide: (() => void) | undefined;
+		let hideCalls = 0;
 		(SheetManager.hide as jest.Mock).mockImplementation(
-			() =>
-				new Promise<void>(resolve => {
+			() => {
+				hideCalls += 1;
+				if (hideCalls === 1) {
+					return Promise.resolve();
+				}
+				return new Promise<void>(resolve => {
 					resolveHide = resolve;
-				}),
+				});
+			},
 		);
 
-		const resultPromise = showPubkySelectionSheet(parsed, 'deeplink', dispatch);
-		await Promise.resolve();
-		await Promise.resolve();
+		const resultPromise = showPubkySelectionSheet(parsed);
+		await flushShow();
 
 		const options = getShowOptions();
 		options.payload.onSelect('pk:selected');
@@ -100,37 +106,34 @@ describe('showPubkySelectionSheet', () => {
 		resolveHide?.();
 
 		await expect(resultPromise).resolves.toBe('pk:selected');
-		expect(dispatch).not.toHaveBeenCalledWith(setDeepLink(''));
 	});
 
-	it('resolves null and clears the deeplink on dismiss without a selection', async () => {
-		const resultPromise = showPubkySelectionSheet(parsed, 'deeplink', dispatch);
-		await Promise.resolve();
-		await Promise.resolve();
-
-		const options = getShowOptions();
-		options.onClose();
-
-		await expect(resultPromise).resolves.toBeNull();
-		expect(dispatch).toHaveBeenCalledWith(setDeepLink(''));
-	});
-
-	it('does not clear deeplink when a scan/clipboard picker is dismissed', async () => {
-		const resultPromise = showPubkySelectionSheet(parsed, 'scan', dispatch);
-		await Promise.resolve();
-		await Promise.resolve();
+	it('resolves null on dismiss without clearing the deeplink', async () => {
+		const dispatch = jest.fn();
+		const resultPromise = showPubkySelectionSheet(parsed);
+		await flushShow();
 
 		const options = getShowOptions();
 		options.onClose();
 
 		await expect(resultPromise).resolves.toBeNull();
 		expect(dispatch).not.toHaveBeenCalled();
+		expect(dispatch).not.toHaveBeenCalledWith(setDeepLink(''));
+	});
+
+	it('hides only the picker sheet, not every open sheet', async () => {
+		const resultPromise = showPubkySelectionSheet(parsed);
+		await flushShow();
+		getShowOptions().onClose();
+		await resultPromise;
+
+		expect(SheetManager.hide).toHaveBeenCalledWith('select-pubky');
+		expect(SheetManager.hideAll).not.toHaveBeenCalled();
 	});
 
 	it('ignores a second onSelect after the sheet has settled', async () => {
-		const resultPromise = showPubkySelectionSheet(parsed, 'deeplink', dispatch);
-		await Promise.resolve();
-		await Promise.resolve();
+		const resultPromise = showPubkySelectionSheet(parsed);
+		await flushShow();
 
 		const options = getShowOptions();
 		options.payload.onSelect('pk:first');
@@ -140,39 +143,23 @@ describe('showPubkySelectionSheet', () => {
 		await expect(resultPromise).resolves.toBe('pk:first');
 	});
 
-	it('starts a fresh picker for a repeated deeplink by hiding existing sheets', async () => {
-		const first = showPubkySelectionSheet(parsed, 'deeplink', dispatch);
-		await Promise.resolve();
-		await Promise.resolve();
-		getShowOptions().onClose();
-		await first;
+	it('does not show a picker when the owner is already stale after hide', async () => {
+		const result = await showPubkySelectionSheet(parsed, {
+			isCurrent: (): boolean => false,
+		});
 
-		jest.clearAllMocks();
-		(SheetManager.hide as jest.Mock).mockResolvedValue(undefined);
-		(SheetManager.hideAll as jest.Mock).mockResolvedValue(undefined);
-		(SheetManager.show as jest.Mock).mockResolvedValue(undefined);
+		expect(result).toBeNull();
+		expect(SheetManager.show).not.toHaveBeenCalled();
+	});
 
-		const secondParsed: ParsedInput = {
-			action: InputAction.Auth,
-			data: {
-				action: InputAction.Auth,
-				params: {
-					relay: 'https://relay.example',
-					secret: 'retry-secret',
-					caps: [],
-				},
-				rawUrl: 'pubkyauth:///?secret=retry-secret',
-			},
-			source: 'deeplink',
-			rawInput: 'pubkyauth:///?secret=retry-secret',
-		};
-		const second = showPubkySelectionSheet(secondParsed, 'deeplink', dispatch);
-		await Promise.resolve();
-		await Promise.resolve();
+	it('does not show a picker when the owner goes stale during the delay', async () => {
+		const isCurrent = jest.fn()
+			.mockReturnValueOnce(true)
+			.mockReturnValue(false);
 
-		expect(SheetManager.hideAll).toHaveBeenCalled();
-		const options = getShowOptions();
-		options.payload.onSelect('pk:retry');
-		await expect(second).resolves.toBe('pk:retry');
+		const result = await showPubkySelectionSheet(parsed, { isCurrent });
+
+		expect(result).toBeNull();
+		expect(SheetManager.show).not.toHaveBeenCalled();
 	});
 });

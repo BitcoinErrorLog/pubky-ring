@@ -17,6 +17,7 @@ jest.mock('react-native-actions-sheet', () => ({
 	SheetManager: {
 		show: jest.fn().mockResolvedValue(undefined),
 		hide: jest.fn().mockResolvedValue(undefined),
+		hideAll: jest.fn().mockResolvedValue(undefined),
 	},
 }));
 
@@ -80,6 +81,10 @@ import {
 	shouldReturnToPreviousApp,
 	moveTaskToBackground,
 } from '../../returnToCaller';
+import {
+	resetRequestGenerationForTests,
+	shouldAuthorizeRequest,
+} from '../../authRequestGeneration';
 import fs from 'fs';
 import path from 'path';
 
@@ -135,6 +140,7 @@ describe('authAction', () => {
 	beforeEach(() => {
 		jest.clearAllMocks();
 		jest.useFakeTimers();
+		resetRequestGenerationForTests();
 		(parseAuthUrl as jest.Mock).mockResolvedValue(
 			createOkResult({
 				relay: 'https://relay.example.com',
@@ -370,8 +376,71 @@ describe('authAction', () => {
 			const result = await handleAuthAction(data, mockContext);
 
 			expect(result.isErr()).toBe(true);
-			// The showToast is called with the error description (empty or fallback)
-			expect(showToast).toHaveBeenCalled();
+			expect(showToast).toHaveBeenCalledWith(
+				expect.objectContaining({
+					description: 'errors.failedToParseAuth',
+				}),
+			);
+		});
+	});
+
+	describe('request generation', () => {
+		it('shows only the latest confirm-auth when a newer request arrives during the delay', async () => {
+			const first = handleAuthAction(
+				createActionData('pubkyauth:///first'),
+				{
+					...mockContext,
+					pubky: 'pk:first',
+				},
+			);
+			const second = handleAuthAction(
+				createActionData('pubkyauth:///second'),
+				{
+					...mockContext,
+					pubky: 'pk:second',
+				},
+			);
+
+			await jest.runAllTimersAsync();
+			const results = await Promise.all([first, second]);
+
+			expect(results[0].isOk()).toBe(true);
+			expect(results[1].isOk()).toBe(true);
+
+			const confirmShows = (SheetManager.show as jest.Mock).mock.calls.filter(
+				(call) => call[0] === 'confirm-auth',
+			);
+			expect(confirmShows).toHaveLength(1);
+			expect(confirmShows[0][1].payload.authUrl).toBe('pubkyauth:///second');
+			expect(confirmShows[0][1].payload.pubky).toBe('pk:second');
+			expect(
+				shouldAuthorizeRequest(confirmShows[0][1].payload.requestGeneration),
+			).toBe(true);
+			expect(SheetManager.hideAll).not.toHaveBeenCalled();
+			expect(SheetManager.hide).toHaveBeenCalledWith('confirm-auth');
+		});
+	});
+
+	describe('error sanitization', () => {
+		it('does not toast a raw parse error that contains a relay URL', async () => {
+			(parseAuthUrl as jest.Mock).mockResolvedValue(
+				createErrResult('https://relay.example/pubkyauth?secret=leak'),
+			);
+
+			const result = await handleAuthAction(
+				createActionData('pubkyauth:///leaky'),
+				mockContext,
+			);
+
+			expect(result.isErr()).toBe(true);
+			expect(showToast).toHaveBeenCalledWith(
+				expect.objectContaining({
+					description: 'errors.failedToParseAuth',
+				}),
+			);
+			const toast = (showToast as jest.Mock).mock.calls[0][0];
+			expect(toast.description).not.toContain('relay.example');
+			expect(toast.description).not.toContain('secret=leak');
 		});
 	});
 });

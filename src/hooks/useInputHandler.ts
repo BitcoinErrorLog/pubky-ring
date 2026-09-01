@@ -117,11 +117,7 @@ export const useInputHandler = (options: UseInputHandlerOptions = {}): UseInputH
 				}
 
 				// Multiple pubkys - show selection sheet
-				const selectedPubky = await showPubkySelectionSheet(
-					parsed,
-					source,
-					dispatch,
-				);
+				const selectedPubky = await showPubkySelectionSheet(parsed);
 				if (selectedPubky) {
 					await routeInputWithContext(parsed, selectedPubky, source, dispatch);
 				}

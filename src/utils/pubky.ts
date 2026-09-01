@@ -33,6 +33,7 @@ import { Result, err, ok } from '@synonymdev/result';
 import { defaultProfile, defaultPubkyState } from '../store/shapes/pubky';
 import { showToast } from './helpers.ts';
 import { getErrorMessage } from './errorHandler.ts';
+import { logAuthError, sanitizeAuthError } from './authError.ts';
 import { auth } from '@synonymdev/react-native-pubky';
 import { getPubkyDataFromStore } from './store-helpers.ts';
 import { EBackupPreference, IKeychainData, TProfile } from '../types/pubky.ts';
@@ -604,10 +605,6 @@ export const truncatePubky = (pubky: string): string => {
 };
 
 const TIMEOUT_MS = 20000;
-const timeout = (ms: number): Promise<void> =>
-	new Promise((_, reject): void => {
-		setTimeout(() => reject(new Error('Authentication request timed out')), ms);
-	});
 
 export const performAuth = async ({
 	pubky,
@@ -647,27 +644,37 @@ export const performAuth = async ({
 					secretKey,
 				});
 				if (signInRes.isErr()) {
-					return err(getErrorMessage(signInRes.error, i18n.t('errors.signInFailed')));
+					const sanitized = sanitizeAuthError(signInRes.error, 'signIn');
+					logAuthError(sanitized.code);
+					return err(sanitized.message);
 				}
 				const authRetryRes = await auth(authUrl, secretKey);
 				if (authRetryRes.isErr()) {
-					console.error('Error processing auth:', authRes.error);
-					return err(getErrorMessage(authRes.error, i18n.t('errors.failedToProcessAuth')));
+					const sanitized = sanitizeAuthError(authRetryRes.error, 'process');
+					logAuthError(sanitized.code);
+					return err(sanitized.message);
 				}
 			}
 			return ok('success');
 		})();
 
-		const timeoutPromise = timeout(TIMEOUT_MS).then(
-			(): Result<string> => err(i18n.t('auth.timeoutError'))
-		);
+		let timeoutId: ReturnType<typeof setTimeout> | undefined;
+		const timeoutPromise = new Promise<Result<string>>((resolve) => {
+			timeoutId = setTimeout(() => {
+				resolve(err(i18n.t('auth.timeoutError')));
+			}, TIMEOUT_MS);
+		});
 
-		return await Promise.race([authPromise, timeoutPromise]);
+		try {
+			return await Promise.race([authPromise, timeoutPromise]);
+		} finally {
+			if (timeoutId !== undefined) {
+				clearTimeout(timeoutId);
+			}
+		}
 	} catch (error: unknown) {
-		console.error('Auth Error:', error);
-		const errorMessage = error instanceof Error
-			? error.message
-			: i18n.t('pubkyErrors.authorizationError');
-		return err(`Auth Error: ${errorMessage}`);
+		const sanitized = sanitizeAuthError(error, 'failed');
+		logAuthError(sanitized.code);
+		return err(sanitized.message);
 	}
 };

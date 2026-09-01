@@ -1,5 +1,5 @@
 import React, { memo, ReactElement, useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { PubkyAuthDetails } from '@synonymdev/react-native-pubky';
 import {
 	ActionButton,
@@ -24,7 +24,6 @@ import {
 import { moveTaskToBackground } from '../utils/returnToCaller';
 import PubkyCard from './PubkyCard.tsx';
 import { useAnimatedStyle, useSharedValue, withTiming, withSequence } from 'react-native-reanimated';
-import { copyToClipboard } from '../utils/clipboard.ts';
 import { getNavigationAnimation } from '../store/selectors/settingsSelectors.ts';
 import Toast from 'react-native-toast-message';
 import { toastConfig } from '../theme/toastConfig.tsx';
@@ -39,6 +38,9 @@ import { getPubkyName } from '../store/selectors/pubkySelectors.ts';
 import ProgressBar from './ProgressBar.tsx';
 import SystemNavigationBar from 'react-native-system-navigation-bar';
 import { useTranslation } from 'react-i18next';
+import { shouldAuthorizeRequest } from '../utils/authRequestGeneration';
+import { sanitizeAuthError } from '../utils/authError';
+import { runConfirmAuthGrant } from '../utils/confirmAuthGrant';
 
 interface ConfirmAuthProps {
     pubky: string;
@@ -46,6 +48,7 @@ interface ConfirmAuthProps {
     authDetails: PubkyAuthDetails;
     onComplete: () => void;
     returnToCaller?: boolean;
+    requestGeneration?: number;
 }
 
 interface Capability {
@@ -98,7 +101,7 @@ const FADE_DURATION = 100;
 const ConfirmAuth = ({ payload }: { payload: ConfirmAuthProps }): ReactElement => {
 	const { t } = useTranslation();
 	const navigationAnimation = useSelector(getNavigationAnimation);
-	const { pubky, authUrl, authDetails, onComplete, returnToCaller } = payload;
+	const { pubky, authUrl, authDetails, onComplete, returnToCaller, requestGeneration } = payload;
 	const [authorizing, setAuthorizing] = useState(false);
 	const [isAuthorized, setIsAuthorized] = useState(false);
 	const dispatch = useDispatch();
@@ -146,19 +149,29 @@ const ConfirmAuth = ({ payload }: { payload: ConfirmAuthProps }): ReactElement =
 	}, []);
 
 	const handleAuth = useCallback(async (): Promise<void> => {
+		if (!shouldAuthorizeRequest(requestGeneration)) {
+			return;
+		}
 		setAuthorizing(true);
 		try {
-			const res = await performAuth({
+			const res = await runConfirmAuthGrant(requestGeneration, () => performAuth({
 				pubky,
 				authUrl,
 				dispatch,
-			});
+			}));
+			if (res === 'stale') {
+				return;
+			}
 			if (res.isErr()) {
+				const { message } = sanitizeAuthError(res.error, 'failed');
 				showToast({
 					type: 'error',
 					title: t('common.error'),
-					description: res.error.message,
+					description: message,
 				});
+				return;
+			}
+			if (!shouldAuthorizeRequest(requestGeneration)) {
 				return;
 			}
 			setIsAuthorized(true);
@@ -169,26 +182,16 @@ const ConfirmAuth = ({ payload }: { payload: ConfirmAuthProps }): ReactElement =
 				await moveTaskToBackground();
 			}
 		} catch (e: unknown) {
-			const error = e as Error;
-			const errorMsg = error.message === 'Authentication request timed out'
-                ? t('auth.timeoutError')
-                : error.message || t('confirmAuth.errorOccurred');
+			const { message } = sanitizeAuthError(e, 'failed');
 			showToast({
 				type: 'error',
 				title: t('common.error'),
-				description: errorMsg,
-				autoHide: true,
-				visibilityTime: 20000,
-				onPress: () => {
-					copyToClipboard(errorMsg);
-					Alert.alert(t('confirmAuth.errorCopied'), errorMsg);
-				},
+				description: message,
 			});
-			console.error('Auth error');
 		} finally {
 			setAuthorizing(false);
 		}
-	}, [authUrl, dispatch, onComplete, pubky, returnToCaller, t]);
+	}, [authUrl, dispatch, onComplete, pubky, requestGeneration, returnToCaller, t]);
 
 	const authDetailCapabilities = useMemo(() => {
 		return authDetails?.capabilities ?? [];

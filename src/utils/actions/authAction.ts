@@ -13,11 +13,16 @@ import { InputAction, AuthParams } from '../inputParser';
 import { ActionContext } from '../inputRouter';
 import { performAuth } from '../pubky';
 import { showToast } from '../helpers';
-import { getErrorMessage } from '../errorHandler';
 import { getAutoAuthFromStore } from '../store-helpers';
 import { isE2EAutoApproveEnabled } from '../e2eAutoApprove';
 import { AUTH_SHEET_DELAY } from '../constants';
 import { shouldReturnToPreviousApp, moveTaskToBackground } from '../returnToCaller';
+import {
+	hideAuthFlowSheets,
+	isCurrentRequest,
+	nextRequestGeneration,
+} from '../authRequestGeneration';
+import { sanitizeAuthError } from '../authError';
 import i18n from '../../i18n';
 
 type AuthActionData = {
@@ -35,6 +40,8 @@ export const handleAuthAction = async (
 ): Promise<Result<string>> => {
 	const { pubky, dispatch } = context;
 	const { rawUrl } = data;
+	const generation = nextRequestGeneration();
+	await hideAuthFlowSheets();
 
 	// Auth requires a pubky
 	if (!pubky) {
@@ -49,13 +56,17 @@ export const handleAuthAction = async (
 	// Parse the auth URL to validate it
 	const authResult = await parseAuthUrl(rawUrl);
 	if (authResult.isErr()) {
-		const description = authResult.error?.message ?? i18n.t('errors.failedToParseAuth');
+		const { message } = sanitizeAuthError(authResult.error, 'parse');
 		showToast({
 			type: 'error',
 			title: i18n.t('common.error'),
-			description,
+			description: message,
 		});
-		return err(description);
+		return err(message);
+	}
+
+	if (!isCurrentRequest(generation)) {
+		return ok('superseded');
 	}
 
 	// Settings Auto Auth, or Debug/simulator E2E auto-approve (__DEV__ only)
@@ -69,6 +80,7 @@ export const handleAuthAction = async (
 			authUrl: rawUrl,
 			dispatch,
 			returnToCaller,
+			generation,
 		});
 	}
 
@@ -78,6 +90,7 @@ export const handleAuthAction = async (
 		authUrl: rawUrl,
 		authDetails: authResult.value,
 		returnToCaller,
+		generation,
 	});
 };
 
@@ -89,12 +102,18 @@ const handleAutoAuth = async ({
 	authUrl,
 	dispatch,
 	returnToCaller,
+	generation,
 }: {
 	pubky: string;
 	authUrl: string;
 	dispatch: ActionContext['dispatch'];
 	returnToCaller: boolean;
+	generation: number;
 }): Promise<Result<string>> => {
+	if (!isCurrentRequest(generation)) {
+		return ok('superseded');
+	}
+
 	const res = await performAuth({
 		pubky,
 		authUrl,
@@ -102,6 +121,9 @@ const handleAutoAuth = async ({
 	});
 
 	if (res.isOk()) {
+		if (!isCurrentRequest(generation)) {
+			return ok('superseded');
+		}
 		showToast({
 			type: 'success',
 			title: i18n.t('common.success'),
@@ -111,10 +133,11 @@ const handleAutoAuth = async ({
 			await moveTaskToBackground();
 		}
 	} else {
+		const { message } = sanitizeAuthError(res.error, 'failed');
 		showToast({
 			type: 'error',
 			title: i18n.t('common.error'),
-			description: getErrorMessage(res.error, i18n.t('errors.authorizationFailed')),
+			description: message,
 		});
 	}
 
@@ -129,11 +152,13 @@ const showAuthConfirmation = async ({
 	authUrl,
 	authDetails,
 	returnToCaller,
+	generation,
 }: {
 	pubky: string;
 	authUrl: string;
 	authDetails: PubkyAuthDetails;
 	returnToCaller: boolean;
+	generation: number;
 }): Promise<Result<string>> => {
 	try {
 		SystemNavigationBar.navigationHide().then();
@@ -142,12 +167,18 @@ const showAuthConfirmation = async ({
 			setTimeout(resolve, AUTH_SHEET_DELAY);
 		});
 
+		if (!isCurrentRequest(generation)) {
+			SystemNavigationBar.navigationShow().then();
+			return ok('superseded');
+		}
+
 		SheetManager.show('confirm-auth', {
 			payload: {
 				pubky,
 				authUrl,
 				authDetails,
 				returnToCaller,
+				requestGeneration: generation,
 				onComplete: async (): Promise<void> => {},
 			},
 			onClose: () => {

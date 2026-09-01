@@ -57,7 +57,9 @@ export const handleSignupAction = async (
 	let pubky = '';
 
 	// Small delay to ensure any previous sheet (e.g., camera) has fully closed
-	await new Promise(resolve => setTimeout(resolve, SHEET_ANIMATION_DELAY));
+	await new Promise<void>((resolve) => {
+		setTimeout(resolve, SHEET_ANIMATION_DELAY);
+	});
 
 	// Show loading modal FIRST (don't await - it resolves when sheet closes)
 	// This ensures errors are visible via the modal's error state
@@ -135,16 +137,12 @@ export const handleSignupAction = async (
 					);
 				} else {
 					// Multiple pubkys: show selector, then forward to auth
-					const selectedPubky = await showPubkySelectionSheet(
-						{
-							action: InputAction.Auth,
-							data: authData,
-							source: 'scan',
-							rawInput: authUrl,
-						},
-						'scan',
-						dispatch,
-					);
+					const selectedPubky = await showPubkySelectionSheet({
+						action: InputAction.Auth,
+						data: authData,
+						source: 'scan',
+						rawInput: authUrl,
+					});
 
 					if (!selectedPubky) {
 						// User dismissed without selecting - return error

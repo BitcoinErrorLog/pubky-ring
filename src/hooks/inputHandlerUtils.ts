@@ -77,21 +77,34 @@ export const routeInputWithContext = async (
 	}
 };
 
+export type ShowPubkySelectionOptions = {
+	isCurrent?: () => boolean;
+};
+
 /**
  * Shows pubky selection sheet for multi-pubky scenarios
  * Returns the selected pubky, or null if user dismisses without selecting.
  *
  * Hide/onClose always fires after a tap as well as a dismiss. A real selection
- * must settle first so the close handler cannot resolve null or clear the
- * deeplink and tear down ConfirmAuth.
+ * must settle first so the close handler cannot resolve null.
+ *
+ * Does not clear the deeplink. The owning caller clears after await, and only
+ * when it still owns the current generation.
  */
 export const showPubkySelectionSheet = async (
 	_parsed: ParsedInput,
-	source: InputSource,
-	dispatch: Dispatch,
+	options: ShowPubkySelectionOptions = {},
 ): Promise<string | null> => {
-	await SheetManager.hideAll();
+	const isCurrent = options.isCurrent ?? ((): boolean => true);
+
+	await SheetManager.hide('select-pubky');
+	if (!isCurrent()) {
+		return null;
+	}
 	await sleep(150);
+	if (!isCurrent()) {
+		return null;
+	}
 
 	return new Promise((resolve) => {
 		let settled = false;
@@ -101,11 +114,13 @@ export const showPubkySelectionSheet = async (
 				return;
 			}
 			settled = true;
-			if (pubky === null && source === 'deeplink') {
-				dispatch(setDeepLink(''));
-			}
 			resolve(pubky);
 		};
+
+		if (!isCurrent()) {
+			settle(null);
+			return;
+		}
 
 		SheetManager.show('select-pubky', {
 			payload: {

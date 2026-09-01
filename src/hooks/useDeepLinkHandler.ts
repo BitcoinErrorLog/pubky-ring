@@ -5,24 +5,16 @@
  * This hook watches the deepLink Redux state and routes parsed inputs to handlers.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { SheetManager } from 'react-native-actions-sheet';
 import {
 	getAllPubkys,
 	getDeepLink,
 	getSignedUpPubkys,
 } from '../store/selectors/pubkySelectors';
-import { setDeepLink } from '../store/slices/pubkysSlice';
-import { ParsedInput } from '../utils/inputParser';
-import { actionRequiresPubky } from '../utils/inputRouter';
-import {
-	routeInputWithContext,
-	showPubkySelectionSheet,
-	handleNoPubkysAvailable,
-	PubkyCallbacks,
-} from './inputHandlerUtils';
-import { isE2EAutoApproveEnabled } from '../utils/e2eAutoApprove';
+import { nextRequestGeneration } from '../utils/authRequestGeneration';
+import { processStoredDeepLink } from './deepLinkProcessor';
+import { PubkyCallbacks } from './inputHandlerUtils';
 
 /**
  * Hook for handling deeplinks using the unified input system
@@ -39,99 +31,35 @@ export const useDeepLinkHandler = (
 	const signedUpPubkys = useSelector(getSignedUpPubkys);
 	const allPubkys = useSelector(getAllPubkys);
 
+	const signedUpPubkysRef = useRef(signedUpPubkys);
+	const allPubkysRef = useRef(allPubkys);
+	const createPubkyRef = useRef(createPubky);
+	const importPubkyRef = useRef(importPubky);
+	signedUpPubkysRef.current = signedUpPubkys;
+	allPubkysRef.current = allPubkys;
+	createPubkyRef.current = createPubky;
+	importPubkyRef.current = importPubky;
+
 	useEffect(() => {
-		if (!deepLink) return;
+		if (!deepLink) {
+			return;
+		}
 
-		let cancelled = false;
-
-		const processDeepLink = async (): Promise<void> => {
-			// Parse the stored deeplink (App.tsx stores ParsedInput as JSON)
-			let parsedInput: ParsedInput;
-			try {
-				parsedInput = JSON.parse(deepLink);
-			} catch {
-				if (!cancelled) {
-					dispatch(setDeepLink(''));
-				}
-				return;
-			}
-
-			// Validate it's a proper ParsedInput object (has action and data properties)
-			if (!parsedInput.action || !parsedInput.data) {
-				if (!cancelled) {
-					dispatch(setDeepLink(''));
-				}
-				return;
-			}
-
-			if (cancelled) {
-				return;
-			}
-
-			const callbacks: PubkyCallbacks = { createPubky, importPubky };
-
-			// Check if action requires a pubky selection
-			if (actionRequiresPubky(parsedInput.action)) {
-				const signedUpPubkyKeys = Object.keys(signedUpPubkys);
-
-				if (signedUpPubkyKeys.length === 0) {
-					if (cancelled) {
-						return;
-					}
-					dispatch(setDeepLink(''));
-					handleNoPubkysAvailable(allPubkys, callbacks);
-					return;
-				}
-
-				// Debug/simulator: skip the picker so Hypercolor can authorize without a tap.
-				// Uses the first signed-up pubky (P6 expects a single identity on sim).
-				if (isE2EAutoApproveEnabled()) {
-					if (cancelled) {
-						return;
-					}
-					await SheetManager.hideAll();
-					if (cancelled) {
-						return;
-					}
-					await routeInputWithContext(
-						parsedInput,
-						signedUpPubkyKeys[0],
-						'deeplink',
-						dispatch,
-					);
-					return;
-				}
-
-				// Always show selection sheet for actions requiring pubky
-				// This gives user a chance to confirm even with single pubky
-				const selectedPubky = await showPubkySelectionSheet(
-					parsedInput,
-					'deeplink',
-					dispatch,
-				);
-				if (cancelled) {
-					return;
-				}
-				if (selectedPubky) {
-					await routeInputWithContext(parsedInput, selectedPubky, 'deeplink', dispatch);
-				}
-				return;
-			}
-
-			if (cancelled) {
-				return;
-			}
-
-			// Action doesn't require pubky selection - route directly
-			await routeInputWithContext(parsedInput, undefined, 'deeplink', dispatch);
+		const generation = nextRequestGeneration();
+		const callbacks: PubkyCallbacks = {
+			createPubky: createPubkyRef.current,
+			importPubky: importPubkyRef.current,
 		};
 
-		processDeepLink();
-
-		return (): void => {
-			cancelled = true;
-		};
-	// Note: allPubkys is intentionally excluded to prevent re-triggering when new pubkys are created
-	// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [deepLink, dispatch, signedUpPubkys, createPubky, importPubky]);
+		processStoredDeepLink({
+			deepLink,
+			generation,
+			dispatch,
+			signedUpPubkys: signedUpPubkysRef.current,
+			allPubkys: allPubkysRef.current,
+			callbacks,
+		});
+		// signedUpPubkys identity changes must not restart an open picker.
+		 
+	}, [deepLink, dispatch]);
 };
