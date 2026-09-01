@@ -157,6 +157,28 @@ describe('inputParser', () => {
 
 			expect(result.action).toBe(InputAction.Auth);
 		});
+
+		it('does not treat a callback query as auth action data', async () => {
+			mockParseAuthUrl.mockResolvedValue(
+				createOkResult({
+					relay: 'https://relay.example.com',
+					secret: 'secret123',
+					capabilities: [],
+				})
+			);
+
+			const result = await parseInput(
+				'pubkyauth:///?relay=https://relay.example.com&secret=secret123&callback=https://evil.example',
+				'deeplink'
+			);
+
+			expect(result.action).toBe(InputAction.Auth);
+			expect(isAuthAction(result.data)).toBe(true);
+			if (isAuthAction(result.data)) {
+				expect(result.data.params).not.toHaveProperty('callback');
+				expect(Object.keys(result.data.params).sort()).toEqual(['caps', 'relay', 'secret']);
+			}
+		});
 	});
 
 	describe('parseInput - Signup deeplinks', () => {

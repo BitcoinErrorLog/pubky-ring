@@ -40,13 +40,26 @@ declare module 'react-native-actions-sheet' {
 				onClose: () => void;
 			};
 		}>;
-		'confirm-auth': SheetDefinition;
+		'confirm-auth': SheetDefinition<{
+			payload: {
+				pubky: string;
+				authUrl: string;
+				authDetails: unknown;
+				onComplete?: () => void;
+				returnToCaller?: boolean;
+			};
+		}>;
 		'delete-pubky': SheetDefinition;
 		'new-pubky-setup': SheetDefinition;
 		'select-backup-preference': SheetDefinition;
 		'edit-pubky': SheetDefinition;
 		'add-pubky': SheetDefinition;
-		'select-pubky': SheetDefinition;
+		'select-pubky': SheetDefinition<{
+			payload: {
+				deepLink?: string;
+				onSelect?: (pubky: string) => void;
+			};
+		}>;
 		'import-success': SheetDefinition;
 		'migrate-modal': SheetDefinition<{
 			payload: {

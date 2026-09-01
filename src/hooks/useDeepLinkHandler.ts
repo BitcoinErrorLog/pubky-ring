@@ -7,6 +7,7 @@
 
 import { useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { SheetManager } from 'react-native-actions-sheet';
 import {
 	getAllPubkys,
 	getDeepLink,
@@ -41,20 +42,29 @@ export const useDeepLinkHandler = (
 	useEffect(() => {
 		if (!deepLink) return;
 
+		let cancelled = false;
+
 		const processDeepLink = async (): Promise<void> => {
 			// Parse the stored deeplink (App.tsx stores ParsedInput as JSON)
 			let parsedInput: ParsedInput;
 			try {
 				parsedInput = JSON.parse(deepLink);
 			} catch {
-				// If parsing fails, clear the deeplink and exit
-				dispatch(setDeepLink(''));
+				if (!cancelled) {
+					dispatch(setDeepLink(''));
+				}
 				return;
 			}
 
 			// Validate it's a proper ParsedInput object (has action and data properties)
 			if (!parsedInput.action || !parsedInput.data) {
-				dispatch(setDeepLink(''));
+				if (!cancelled) {
+					dispatch(setDeepLink(''));
+				}
+				return;
+			}
+
+			if (cancelled) {
 				return;
 			}
 
@@ -65,7 +75,9 @@ export const useDeepLinkHandler = (
 				const signedUpPubkyKeys = Object.keys(signedUpPubkys);
 
 				if (signedUpPubkyKeys.length === 0) {
-					// No signed up pubkys - prompt user to set one up
+					if (cancelled) {
+						return;
+					}
 					dispatch(setDeepLink(''));
 					handleNoPubkysAvailable(allPubkys, callbacks);
 					return;
@@ -74,6 +86,13 @@ export const useDeepLinkHandler = (
 				// Debug/simulator: skip the picker so Hypercolor can authorize without a tap.
 				// Uses the first signed-up pubky (P6 expects a single identity on sim).
 				if (isE2EAutoApproveEnabled()) {
+					if (cancelled) {
+						return;
+					}
+					await SheetManager.hideAll();
+					if (cancelled) {
+						return;
+					}
 					await routeInputWithContext(
 						parsedInput,
 						signedUpPubkyKeys[0],
@@ -90,9 +109,16 @@ export const useDeepLinkHandler = (
 					'deeplink',
 					dispatch,
 				);
+				if (cancelled) {
+					return;
+				}
 				if (selectedPubky) {
 					await routeInputWithContext(parsedInput, selectedPubky, 'deeplink', dispatch);
 				}
+				return;
+			}
+
+			if (cancelled) {
 				return;
 			}
 
@@ -101,6 +127,10 @@ export const useDeepLinkHandler = (
 		};
 
 		processDeepLink();
+
+		return (): void => {
+			cancelled = true;
+		};
 	// Note: allPubkys is intentionally excluded to prevent re-triggering when new pubkys are created
 	// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [deepLink, dispatch, signedUpPubkys, createPubky, importPubky]);

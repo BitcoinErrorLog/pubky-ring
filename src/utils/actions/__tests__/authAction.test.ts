@@ -59,6 +59,12 @@ jest.mock('../../constants', () => ({
 	AUTH_SHEET_DELAY: 0,
 }));
 
+jest.mock('../../returnToCaller', () => ({
+	shouldReturnToPreviousApp: jest.fn(() => false),
+	moveTaskToBackground: jest.fn().mockResolvedValue(true),
+	returnToPreviousAppIfNeeded: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('../../../i18n', () => ({
 	default: { t: (key: string) => key },
 	t: (key: string) => key,
@@ -70,6 +76,12 @@ import { performAuth } from '../../pubky';
 import { showToast } from '../../helpers';
 import { getAutoAuthFromStore } from '../../store-helpers';
 import { isE2EAutoApproveEnabled } from '../../e2eAutoApprove';
+import {
+	shouldReturnToPreviousApp,
+	moveTaskToBackground,
+} from '../../returnToCaller';
+import fs from 'fs';
+import path from 'path';
 
 type AuthActionData = {
 	action: InputAction.Auth;
@@ -93,6 +105,14 @@ const createErrResult = (message: string) => ({
 });
 
 describe('authAction', () => {
+	it('does not import Linking or open callback URLs', () => {
+		const source = fs.readFileSync(
+			path.join(__dirname, '../authAction.ts'),
+			'utf8',
+		);
+		expect(source).not.toMatch(/Linking/);
+		expect(source).not.toMatch(/openURL/);
+	});
 	const mockDispatch = jest.fn();
 	const mockContext: ActionContext = {
 		dispatch: mockDispatch,
@@ -100,9 +120,15 @@ describe('authAction', () => {
 		isDeeplink: true,
 	};
 
-	const createActionData = (rawUrl: string = 'pubkyauth:///test'): AuthActionData => ({
+	const createActionData = (
+		rawUrl: string = 'pubkyauth:///test',
+	): AuthActionData => ({
 		action: InputAction.Auth,
-		params: { relay: 'https://relay.example.com', secret: 'secret123', caps: ['/pub:rw'] },
+		params: {
+			relay: 'https://relay.example.com',
+			secret: 'secret123',
+			caps: ['/pub:rw'],
+		},
 		rawUrl,
 	});
 
@@ -114,7 +140,7 @@ describe('authAction', () => {
 				relay: 'https://relay.example.com',
 				secret: 'secret123',
 				capabilities: [{ path: '/pub', permission: 'rw' }],
-			})
+			}),
 		);
 		(getAutoAuthFromStore as jest.Mock).mockReturnValue(false);
 		(isE2EAutoApproveEnabled as jest.Mock).mockReturnValue(false);
@@ -133,13 +159,13 @@ describe('authAction', () => {
 
 			expect(result.isErr()).toBe(true);
 			expect(showToast).toHaveBeenCalledWith(
-				expect.objectContaining({ type: 'error' })
+				expect.objectContaining({ type: 'error' }),
 			);
 		});
 
 		it('should reject when auth URL parsing fails', async () => {
 			(parseAuthUrl as jest.Mock).mockResolvedValue(
-				createErrResult('Invalid auth URL')
+				createErrResult('Invalid auth URL'),
 			);
 			const data = createActionData('invalid-url');
 
@@ -147,7 +173,7 @@ describe('authAction', () => {
 
 			expect(result.isErr()).toBe(true);
 			expect(showToast).toHaveBeenCalledWith(
-				expect.objectContaining({ type: 'error' })
+				expect.objectContaining({ type: 'error' }),
 			);
 		});
 	});
@@ -178,18 +204,20 @@ describe('authAction', () => {
 			await handleAuthAction(data, mockContext);
 
 			expect(showToast).toHaveBeenCalledWith(
-				expect.objectContaining({ type: 'success' })
+				expect.objectContaining({ type: 'success' }),
 			);
 		});
 
 		it('should show error toast on failed auto-auth', async () => {
-			(performAuth as jest.Mock).mockResolvedValue(createErrResult('Auth failed'));
+			(performAuth as jest.Mock).mockResolvedValue(
+				createErrResult('Auth failed'),
+			);
 			const data = createActionData();
 
 			await handleAuthAction(data, mockContext);
 
 			expect(showToast).toHaveBeenCalledWith(
-				expect.objectContaining({ type: 'error' })
+				expect.objectContaining({ type: 'error' }),
 			);
 		});
 
@@ -235,13 +263,108 @@ describe('authAction', () => {
 
 			expect(performAuth).not.toHaveBeenCalled();
 		});
+
+		it('passes returnToCaller on the confirm-auth payload for Android deeplinks', async () => {
+			(shouldReturnToPreviousApp as jest.Mock).mockReturnValue(true);
+			const data = createActionData();
+
+			const resultPromise = handleAuthAction(data, mockContext);
+			await jest.runAllTimersAsync();
+			await resultPromise;
+
+			expect(SheetManager.show).toHaveBeenCalledWith(
+				'confirm-auth',
+				expect.objectContaining({
+					payload: expect.objectContaining({
+						returnToCaller: true,
+					}),
+				}),
+			);
+		});
+
+		it('does not pass returnToCaller for in-app auth', async () => {
+			(shouldReturnToPreviousApp as jest.Mock).mockReturnValue(false);
+			const data = createActionData();
+			const scanContext: ActionContext = {
+				dispatch: mockDispatch,
+				pubky: 'test-pubky-z32',
+				isDeeplink: false,
+			};
+
+			const resultPromise = handleAuthAction(data, scanContext);
+			await jest.runAllTimersAsync();
+			await resultPromise;
+
+			expect(SheetManager.show).toHaveBeenCalledWith(
+				'confirm-auth',
+				expect.objectContaining({
+					payload: expect.objectContaining({
+						returnToCaller: false,
+					}),
+				}),
+			);
+		});
+	});
+
+	describe('return to caller', () => {
+		it('backgrounds Ring after successful auto-auth from an Android deeplink', async () => {
+			(getAutoAuthFromStore as jest.Mock).mockReturnValue(true);
+			(shouldReturnToPreviousApp as jest.Mock).mockReturnValue(true);
+			(performAuth as jest.Mock).mockResolvedValue(createOkResult('success'));
+
+			await handleAuthAction(createActionData(), mockContext);
+
+			expect(moveTaskToBackground).toHaveBeenCalledTimes(1);
+		});
+
+		it('does not background Ring after failed auto-auth', async () => {
+			(getAutoAuthFromStore as jest.Mock).mockReturnValue(true);
+			(shouldReturnToPreviousApp as jest.Mock).mockReturnValue(true);
+			(performAuth as jest.Mock).mockResolvedValue(
+				createErrResult('Auth failed'),
+			);
+
+			await handleAuthAction(createActionData(), mockContext);
+
+			expect(moveTaskToBackground).not.toHaveBeenCalled();
+		});
+
+		it('does not background Ring after successful auto-auth for in-app scans', async () => {
+			(getAutoAuthFromStore as jest.Mock).mockReturnValue(true);
+			(shouldReturnToPreviousApp as jest.Mock).mockReturnValue(false);
+			(performAuth as jest.Mock).mockResolvedValue(createOkResult('success'));
+
+			await handleAuthAction(createActionData(), {
+				dispatch: mockDispatch,
+				pubky: 'test-pubky-z32',
+				isDeeplink: false,
+			});
+
+			expect(moveTaskToBackground).not.toHaveBeenCalled();
+		});
+
+		it('never opens a callback URL even if the pubkyauth URI contains one', async () => {
+			(getAutoAuthFromStore as jest.Mock).mockReturnValue(true);
+			(shouldReturnToPreviousApp as jest.Mock).mockReturnValue(true);
+			(performAuth as jest.Mock).mockResolvedValue(createOkResult('success'));
+			const data = createActionData(
+				'pubkyauth:///?callback=https://evil.example/steal&secret=secret123',
+			);
+
+			await handleAuthAction(data, mockContext);
+
+			expect(moveTaskToBackground).toHaveBeenCalledTimes(1);
+			expect(performAuth).toHaveBeenCalledWith({
+				pubky: 'test-pubky-z32',
+				authUrl: data.rawUrl,
+				dispatch: mockDispatch,
+			});
+		});
 	});
 
 	describe('edge cases', () => {
 		it('should handle auth URL with empty error message', async () => {
-			(parseAuthUrl as jest.Mock).mockResolvedValue(
-				createErrResult('')
-			);
+			(parseAuthUrl as jest.Mock).mockResolvedValue(createErrResult(''));
 			const data = createActionData();
 
 			const result = await handleAuthAction(data, mockContext);
@@ -252,4 +375,3 @@ describe('authAction', () => {
 		});
 	});
 });
-

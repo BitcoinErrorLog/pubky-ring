@@ -1,5 +1,6 @@
 package to.pubkyring
 
+import android.content.Intent
 import android.os.Bundle
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
@@ -24,5 +25,15 @@ class MainActivity : ReactActivity() {
   // Add this override to fix the fragment restoration issue
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(null)
+  }
+
+  /**
+   * singleTask + ACTION_VIEW retries arrive here. Keep the latest intent on the
+   * activity so Linking.getInitialURL matches the event emitted by RN, without
+   * logging the URI (pubkyauth secrets live in the query).
+   */
+  override fun onNewIntent(intent: Intent) {
+    setIntent(intent)
+    super.onNewIntent(intent)
   }
 }

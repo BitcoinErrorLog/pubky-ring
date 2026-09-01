@@ -7,11 +7,10 @@ import React, {
 import { StyleSheet } from 'react-native';
 import { View, TouchableOpacity } from '../theme/components.ts';
 import { SheetManager, ScrollView as ActionSheetScrollView } from 'react-native-actions-sheet';
-import { useDispatch, useSelector } from 'react-redux';
+import { useSelector } from 'react-redux';
 import { FlashList, ListRenderItem } from '@shopify/flash-list';
 import PubkyCard from './PubkyCard.tsx';
 import { getAllPubkys } from '../store/selectors/pubkySelectors.ts';
-import { setDeepLink } from '../store/slices/pubkysSlice.ts';
 import { Pubky } from '../types/pubky.ts';
 import {
 	ModalWrapper,
@@ -22,8 +21,6 @@ import {
 } from './shared';
 import { ACTION_SHEET_HEIGHT } from '../utils/constants.ts';
 import { useTranslation } from 'react-i18next';
-import { parseInput } from '../utils/inputParser';
-import { routeInput } from '../utils/inputRouter';
 
 type PubkyItem = { key: string; value: Pubky };
 
@@ -45,21 +42,22 @@ const ListItemComponent = memo(({ name, pubky, onPubkyPress }: {
 
 const SelectPubky = ({ payload }: {
     payload: {
-        deepLink: string;
+        deepLink?: string;
+        onSelect?: (pubky: string) => void;
     };
 }): ReactElement => {
 	const { t } = useTranslation();
-	const dispatch = useDispatch();
 	const pubkys = useSelector(getAllPubkys);
 
 	const closeSheet = useCallback(async (): Promise<void> => {
-		dispatch(setDeepLink(''));
 		return SheetManager.hide('select-pubky');
-	}, [dispatch]);
+	}, []);
 
-	const deepLink = useMemo(() => {
-		return payload?.deepLink;
-	}, [payload?.deepLink]);
+	const onSelect = payload?.onSelect;
+
+	const onPubkyPress = useCallback((pubky: string): void => {
+		onSelect?.(pubky);
+	}, [onSelect]);
 
 	const pubkyArray: {
         key: string;
@@ -72,20 +70,6 @@ const SelectPubky = ({ payload }: {
     			value,
     		}));
     }, [pubkys]);
-
-	const onPubkyPress = useCallback(async (pubky: string) => {
-		await SheetManager.hide('select-pubky');
-		setTimeout(async () => {
-			// Parse and route the deeplink with the selected pubky
-			const parsed = await parseInput(deepLink, 'deeplink');
-			await routeInput(parsed, {
-				dispatch,
-				pubky,
-				isDeeplink: true,
-			});
-			dispatch(setDeepLink(''));
-		}, 100);
-	}, [deepLink, dispatch]);
 
 	const message = useMemo(() => {
 		return pubkyArray.length > 0

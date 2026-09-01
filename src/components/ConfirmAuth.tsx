@@ -21,6 +21,7 @@ import {
 	isSmallScreen,
 	showToast,
 } from '../utils/helpers.ts';
+import { moveTaskToBackground } from '../utils/returnToCaller';
 import PubkyCard from './PubkyCard.tsx';
 import { useAnimatedStyle, useSharedValue, withTiming, withSequence } from 'react-native-reanimated';
 import { copyToClipboard } from '../utils/clipboard.ts';
@@ -44,6 +45,7 @@ interface ConfirmAuthProps {
     authUrl: string;
     authDetails: PubkyAuthDetails;
     onComplete: () => void;
+    returnToCaller?: boolean;
 }
 
 interface Capability {
@@ -96,7 +98,7 @@ const FADE_DURATION = 100;
 const ConfirmAuth = ({ payload }: { payload: ConfirmAuthProps }): ReactElement => {
 	const { t } = useTranslation();
 	const navigationAnimation = useSelector(getNavigationAnimation);
-	const { pubky, authUrl, authDetails, onComplete } = payload;
+	const { pubky, authUrl, authDetails, onComplete, returnToCaller } = payload;
 	const [authorizing, setAuthorizing] = useState(false);
 	const [isAuthorized, setIsAuthorized] = useState(false);
 	const dispatch = useDispatch();
@@ -143,7 +145,7 @@ const ConfirmAuth = ({ payload }: { payload: ConfirmAuthProps }): ReactElement =
 		SystemNavigationBar.navigationShow();
 	}, []);
 
-	const handleAuth = useCallback(async () => {
+	const handleAuth = useCallback(async (): Promise<void> => {
 		setAuthorizing(true);
 		try {
 			const res = await performAuth({
@@ -162,6 +164,10 @@ const ConfirmAuth = ({ payload }: { payload: ConfirmAuthProps }): ReactElement =
 			setIsAuthorized(true);
 			SystemNavigationBar.navigationShow();
 			onComplete?.();
+			if (returnToCaller) {
+				await SheetManager.hide('confirm-auth');
+				await moveTaskToBackground();
+			}
 		} catch (e: unknown) {
 			const error = e as Error;
 			const errorMsg = error.message === 'Authentication request timed out'
@@ -178,11 +184,11 @@ const ConfirmAuth = ({ payload }: { payload: ConfirmAuthProps }): ReactElement =
 					Alert.alert(t('confirmAuth.errorCopied'), errorMsg);
 				},
 			});
-			console.error('Auth error:', error);
+			console.error('Auth error');
 		} finally {
 			setAuthorizing(false);
 		}
-	}, [authUrl, dispatch, onComplete, pubky, t]);
+	}, [authUrl, dispatch, onComplete, pubky, returnToCaller, t]);
 
 	const authDetailCapabilities = useMemo(() => {
 		return authDetails?.capabilities ?? [];

@@ -17,6 +17,7 @@ import { getErrorMessage } from '../errorHandler';
 import { getAutoAuthFromStore } from '../store-helpers';
 import { isE2EAutoApproveEnabled } from '../e2eAutoApprove';
 import { AUTH_SHEET_DELAY } from '../constants';
+import { shouldReturnToPreviousApp, moveTaskToBackground } from '../returnToCaller';
 import i18n from '../../i18n';
 
 type AuthActionData = {
@@ -59,6 +60,7 @@ export const handleAuthAction = async (
 
 	// Settings Auto Auth, or Debug/simulator E2E auto-approve (__DEV__ only)
 	const autoAuth = getAutoAuthFromStore() || isE2EAutoApproveEnabled();
+	const returnToCaller = shouldReturnToPreviousApp(context.isDeeplink);
 
 	if (autoAuth) {
 		// Auto-auth flow - no confirmation modal
@@ -66,6 +68,7 @@ export const handleAuthAction = async (
 			pubky,
 			authUrl: rawUrl,
 			dispatch,
+			returnToCaller,
 		});
 	}
 
@@ -74,6 +77,7 @@ export const handleAuthAction = async (
 		pubky,
 		authUrl: rawUrl,
 		authDetails: authResult.value,
+		returnToCaller,
 	});
 };
 
@@ -84,10 +88,12 @@ const handleAutoAuth = async ({
 	pubky,
 	authUrl,
 	dispatch,
+	returnToCaller,
 }: {
 	pubky: string;
 	authUrl: string;
 	dispatch: ActionContext['dispatch'];
+	returnToCaller: boolean;
 }): Promise<Result<string>> => {
 	const res = await performAuth({
 		pubky,
@@ -101,6 +107,9 @@ const handleAutoAuth = async ({
 			title: i18n.t('common.success'),
 			description: i18n.t('auth.authorized', { pubky }),
 		});
+		if (returnToCaller) {
+			await moveTaskToBackground();
+		}
 	} else {
 		showToast({
 			type: 'error',
@@ -119,39 +128,42 @@ const showAuthConfirmation = async ({
 	pubky,
 	authUrl,
 	authDetails,
+	returnToCaller,
 }: {
 	pubky: string;
 	authUrl: string;
 	authDetails: PubkyAuthDetails;
+	returnToCaller: boolean;
 }): Promise<Result<string>> => {
 	try {
 		SystemNavigationBar.navigationHide().then();
 
-		// Small timeout allows the sheet time to properly display
-		setTimeout(() => {
-			SheetManager.show('confirm-auth', {
-				payload: {
-					pubky,
-					authUrl,
-					authDetails,
-					onComplete: async (): Promise<void> => {},
-				},
-				onClose: () => {
-					SystemNavigationBar.navigationShow().then();
-					SheetManager.hide('confirm-auth');
-				},
-			});
-		}, AUTH_SHEET_DELAY);
+		await new Promise<void>((resolve) => {
+			setTimeout(resolve, AUTH_SHEET_DELAY);
+		});
+
+		SheetManager.show('confirm-auth', {
+			payload: {
+				pubky,
+				authUrl,
+				authDetails,
+				returnToCaller,
+				onComplete: async (): Promise<void> => {},
+			},
+			onClose: () => {
+				SystemNavigationBar.navigationShow().then();
+				SheetManager.hide('confirm-auth');
+			},
+		});
 
 		return ok('success');
-	} catch (error) {
+	} catch {
 		const description = i18n.t('errors.failedToParseAuth');
 		showToast({
 			type: 'error',
 			title: i18n.t('common.error'),
 			description,
 		});
-		console.log(`${description}:`, error);
 		SystemNavigationBar.navigationShow().then();
 		return err(description);
 	}

@@ -50,10 +50,9 @@ export const routeInputWithContext = async (
 
 		const errorMessage = getErrorMessage(result.error, i18n.t('errors.unknownError'));
 
-		// Build debug info for troubleshooting
+		// Do not log rawInput: pubkyauth URLs contain secrets.
 		const debugInfo = JSON.stringify({
 			action: parsed.action,
-			rawInput: parsed.rawInput,
 			error: errorMessage,
 		}, null, 2);
 
@@ -80,10 +79,14 @@ export const routeInputWithContext = async (
 
 /**
  * Shows pubky selection sheet for multi-pubky scenarios
- * Returns the selected pubky, or null if user dismisses without selecting
+ * Returns the selected pubky, or null if user dismisses without selecting.
+ *
+ * Hide/onClose always fires after a tap as well as a dismiss. A real selection
+ * must settle first so the close handler cannot resolve null or clear the
+ * deeplink and tear down ConfirmAuth.
  */
 export const showPubkySelectionSheet = async (
-	parsed: ParsedInput,
+	_parsed: ParsedInput,
 	source: InputSource,
 	dispatch: Dispatch,
 ): Promise<string | null> => {
@@ -91,20 +94,33 @@ export const showPubkySelectionSheet = async (
 	await sleep(150);
 
 	return new Promise((resolve) => {
+		let settled = false;
+
+		const settle = (pubky: string | null): void => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			if (pubky === null && source === 'deeplink') {
+				dispatch(setDeepLink(''));
+			}
+			resolve(pubky);
+		};
+
 		SheetManager.show('select-pubky', {
 			payload: {
-				deepLink: parsed.rawInput,
-				onSelect: (selectedPubky: string) => {
-					SheetManager.hide('select-pubky');
-					resolve(selectedPubky);
+				onSelect: (selectedPubky: string): void => {
+					if (settled) {
+						return;
+					}
+					settled = true;
+					Promise.resolve(SheetManager.hide('select-pubky')).finally(() => {
+						resolve(selectedPubky);
+					});
 				},
 			},
 			onClose: (): void => {
-				SheetManager.hide('select-pubky');
-				if (source === 'deeplink') {
-					dispatch(setDeepLink(''));
-				}
-				resolve(null);
+				settle(null);
 			},
 		});
 	});
