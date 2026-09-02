@@ -179,9 +179,10 @@ export const showPubkySelectionSheet = async (
 				if (activePicker?.id === id) {
 					activePicker = null;
 				}
-				void hideAuthFlowSheet('select-pubky').finally(() => {
+				const resolveSelected = (): void => {
 					resolveResult({ kind: 'selected', pubky: selectedPubky });
-				});
+				};
+				hideAuthFlowSheet('select-pubky').then(resolveSelected, resolveSelected);
 			},
 		},
 		onClose: (): void => {

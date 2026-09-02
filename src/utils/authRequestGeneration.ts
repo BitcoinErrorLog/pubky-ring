@@ -63,11 +63,20 @@ export const shouldAuthorizeRequest = (generation: number | undefined): boolean 
 };
 
 /**
- * SheetManager.hide() never resolves when that id is not in
- * renderedSheetIds, and still publishes hide_wrap. getActiveSheets uses
- * that same registry, so a reported-empty id is the unrendered case:
- * calling hide would hang and can close a later same-id sheet via
- * hide_wrap. Skip only that empty report.
+ * SheetManager.hide() subscribes an onclose_<id> listener, publishes
+ * hide_wrap_<id> once, and only resolves when a rendered sheet answers
+ * with onclose_<id>. getActiveSheets reads the same renderedSheetIds
+ * registry, so a reported-empty id is the unrendered case: nothing is
+ * subscribed to hide_wrap_<id>, so hide would hang forever. Skip only
+ * that empty report.
+ *
+ * A timed-out hide leaves its onclose_<id> listener subscribed. That is
+ * not a future-event replay problem: publish only reaches listeners
+ * already registered, so a sheet mounted later never receives the
+ * earlier hide_wrap_<id>. The leftover listener can only be answered by
+ * a same-id sheet that is concurrently rendered or whose own listener
+ * was never unregistered, and answering it merely settles a promise we
+ * already resolved.
  *
  * If getActiveSheets is missing, treat the sheet as present and bound
  * hide at 400ms rather than trusting emptiness. 400ms is only for an

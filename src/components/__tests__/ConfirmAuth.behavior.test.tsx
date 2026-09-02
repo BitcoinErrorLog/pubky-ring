@@ -87,7 +87,26 @@ jest.mock('../../theme/components', () => {
 
 jest.mock('../PubkyCard.tsx', () => (): null => null);
 jest.mock('../ModalIndicator.tsx', () => (): null => null);
-jest.mock('../ProgressBar.tsx', () => (): null => null);
+type MockProgressBarMount = { onComplete?: () => void; unmounted: boolean };
+
+const mockProgressBarMounts: MockProgressBarMount[] = [];
+
+// Records mount/unmount instead of running the real 60s timer, so the suite can
+// assert that a new request remounts the timer rather than reusing an elapsed one.
+jest.mock('../ProgressBar.tsx', () => {
+	const ReactLib = require('react');
+	return ({ onComplete }: { onComplete?: () => void }): null => {
+		ReactLib.useEffect(() => {
+			const mount: MockProgressBarMount = { onComplete, unmounted: false };
+			mockProgressBarMounts.push(mount);
+			return (): void => {
+				mount.unmounted = true;
+			};
+			// eslint-disable-next-line react-hooks/exhaustive-deps
+		}, []);
+		return null;
+	};
+});
 
 jest.mock('react-i18next', () => ({
 	useTranslation: () => ({ t: (key: string) => key }),
@@ -126,6 +145,7 @@ describe('ConfirmAuth render behavior', () => {
 	beforeEach(() => {
 		jest.clearAllMocks();
 		resetRequestGenerationForTests();
+		mockProgressBarMounts.length = 0;
 		(performAuth as jest.Mock).mockResolvedValue(ok('success'));
 		const { SheetManager } = require('react-native-actions-sheet');
 		(SheetManager.hide as jest.Mock).mockResolvedValue(undefined);
@@ -276,7 +296,9 @@ describe('ConfirmAuth render behavior', () => {
 		expect(moveTaskToBackground).not.toHaveBeenCalled();
 	});
 
-	it('does not hide or grant in the first second without interaction', async () => {
+	// ProgressBar is mocked out, so this covers mounting only and says nothing
+	// about the real 60s auth timer.
+	it('does not hide or grant on mount without interaction', async () => {
 		jest.useFakeTimers();
 		try {
 			const current = nextRequestGeneration();
@@ -364,6 +386,55 @@ describe('ConfirmAuth render behavior', () => {
 		});
 		expect(SheetManager.hide).toHaveBeenCalledWith('confirm-auth');
 		expect(performAuth).not.toHaveBeenCalled();
+	});
+
+	it('remounts the auth timer for a new request so a stale timer cannot close it', async () => {
+		const first = nextRequestGeneration();
+		const store = createStore();
+		const { SheetManager } = require('react-native-actions-sheet');
+		const renderPayload = (requestGeneration: number): React.ReactElement => (
+			<Provider store={store}>
+				<ConfirmAuth
+					payload={{
+						pubky: 'pk:current',
+						authUrl: 'pubkyauth:///?secret=current',
+						authDetails,
+						onComplete: jest.fn(),
+						requestGeneration,
+					}}
+				/>
+			</Provider>
+		);
+
+		let renderer: ReturnType<typeof create>;
+		await act(async () => {
+			renderer = create(renderPayload(first));
+		});
+		expect(mockProgressBarMounts).toHaveLength(1);
+		expect(mockProgressBarMounts[0].unmounted).toBe(false);
+
+		const second = nextRequestGeneration();
+		await act(async () => {
+			renderer!.update(renderPayload(second));
+		});
+
+		// The superseded request's timer is torn down and a fresh one starts,
+		// rather than the new request inheriting an already-elapsed timer.
+		expect(mockProgressBarMounts).toHaveLength(2);
+		expect(mockProgressBarMounts[0].unmounted).toBe(true);
+		expect(mockProgressBarMounts[1].unmounted).toBe(false);
+
+		// The superseded timer is torn down before it can complete, so it can
+		// never close or grant the request that replaced it.
+		expect(SheetManager.hide).not.toHaveBeenCalled();
+		expect(performAuth).not.toHaveBeenCalled();
+		expect(moveTaskToBackground).not.toHaveBeenCalled();
+
+		// Only the live timer is still wired to the sheet.
+		await act(async () => {
+			mockProgressBarMounts[1].onComplete?.();
+		});
+		expect(SheetManager.hide).toHaveBeenCalledWith('confirm-auth');
 	});
 });
 

@@ -21,6 +21,9 @@ describe('auth-flow camera policy', () => {
 		resetRequestGenerationForTests();
 		(SheetManager.hide as jest.Mock).mockResolvedValue(undefined);
 		(SheetManager.hideAll as jest.Mock).mockResolvedValue(undefined);
+		(SheetManager.getActiveSheets as jest.Mock).mockImplementation((id: string) => [
+			{ id, context: 'global' },
+		]);
 	});
 
 	it('hides the auth-flow camera for a new external deeplink, not hideAll', async () => {
@@ -32,6 +35,17 @@ describe('auth-flow camera policy', () => {
 		expect(SheetManager.hide).not.toHaveBeenCalledWith('edit-pubky');
 		expect(SheetManager.hideAll).not.toHaveBeenCalled();
 		expect(AUTH_FLOW_SHEETS).toEqual(['select-pubky', 'confirm-auth', 'camera']);
+	});
+
+	it('skips the camera hide when the camera is reported unrendered', async () => {
+		(SheetManager.getActiveSheets as jest.Mock).mockImplementation((id: string) => (
+			id === 'camera' ? [] : [{ id, context: 'global' }]
+		));
+		await hideAuthFlowSheets();
+		expect(SheetManager.hide).not.toHaveBeenCalledWith('camera');
+		expect(SheetManager.hide).toHaveBeenCalledWith('select-pubky');
+		expect(SheetManager.hide).toHaveBeenCalledWith('confirm-auth');
+		expect(SheetManager.hideAll).not.toHaveBeenCalled();
 	});
 
 	it('does not let a deeplink with no camera affect a later scanner', async () => {
