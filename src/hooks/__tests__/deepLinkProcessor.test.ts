@@ -10,6 +10,7 @@ import { clearDeepLinkIfMatch } from '../../store/slices/pubkysSlice';
 import { routeInput } from '../../utils/inputRouter';
 import { resetPickerSessionForTests } from '../inputHandlerUtils';
 import {
+	HIDE_SHEET_TIMEOUT_MS,
 	nextRequestGeneration,
 	resetRequestGenerationForTests,
 } from '../../utils/authRequestGeneration';
@@ -81,10 +82,23 @@ const flushMicrotasks = async (): Promise<void> => {
 	await Promise.resolve();
 };
 
+const flushHides = async (): Promise<void> => {
+	await flushMicrotasks();
+	jest.advanceTimersByTime(HIDE_SHEET_TIMEOUT_MS);
+	await flushMicrotasks();
+	jest.advanceTimersByTime(HIDE_SHEET_TIMEOUT_MS);
+	await flushMicrotasks();
+};
+
 const flushSleep = async (): Promise<void> => {
 	const resolve = sleepResolvers.shift();
 	resolve?.();
 	await flushMicrotasks();
+};
+
+const waitForPicker = async (): Promise<void> => {
+	await flushHides();
+	await flushSleep();
 };
 
 describe('processStoredDeepLink interleaving', () => {
@@ -93,6 +107,7 @@ describe('processStoredDeepLink interleaving', () => {
 	let openPickers: ShowOptions[];
 
 	beforeEach(() => {
+		jest.useFakeTimers();
 		jest.clearAllMocks();
 		sleepResolvers.length = 0;
 		openPickers = [];
@@ -110,11 +125,21 @@ describe('processStoredDeepLink interleaving', () => {
 			}
 			return Promise.resolve();
 		});
+		(SheetManager.getActiveSheets as jest.Mock).mockImplementation((id: string) => {
+			if (id === 'select-pubky' && openPickers.length > 0) {
+				return [{ id, context: 'global' }];
+			}
+			return [];
+		});
 		(SheetManager.hideAll as jest.Mock).mockResolvedValue(undefined);
 		(SheetManager.show as jest.Mock).mockImplementation((_id: string, options: ShowOptions) => {
 			openPickers.push(options);
 			return Promise.resolve();
 		});
+	});
+
+	afterEach(() => {
+		jest.useRealTimers();
 	});
 
 	it('keeps deeplink B current after A onClose and routes B', async () => {
@@ -130,8 +155,7 @@ describe('processStoredDeepLink interleaving', () => {
 			callbacks: {},
 			getStoredDeepLink,
 		});
-		await flushMicrotasks();
-		await flushSleep();
+		await waitForPicker();
 		expect(openPickers).toHaveLength(1);
 
 		stored = JSON.stringify(parsedB);
@@ -151,7 +175,7 @@ describe('processStoredDeepLink interleaving', () => {
 			clearDeepLinkIfMatch(JSON.stringify(parsedB)),
 		);
 
-		await flushSleep();
+		await waitForPicker();
 		expect(openPickers).toHaveLength(1);
 
 		openPickers[0].payload.onSelect('pk:two');
@@ -200,9 +224,8 @@ describe('processStoredDeepLink interleaving', () => {
 		});
 		await flushMicrotasks();
 
+		await flushHides();
 		await flushSleep();
-		expect(SheetManager.show).not.toHaveBeenCalled();
-
 		await flushSleep();
 		expect(SheetManager.show).toHaveBeenCalledTimes(1);
 
@@ -229,8 +252,7 @@ describe('processStoredDeepLink interleaving', () => {
 			callbacks: {},
 			getStoredDeepLink: (): string => stored,
 		});
-		await flushMicrotasks();
-		await flushSleep();
+		await waitForPicker();
 		expect(openPickers).toHaveLength(1);
 
 		const signedUpPubkysNext = { ...signedUpPubkys };
@@ -249,5 +271,34 @@ describe('processStoredDeepLink interleaving', () => {
 		expect(dispatch).toHaveBeenCalledWith(
 			clearDeepLinkIfMatch(JSON.stringify(parsedA)),
 		);
+	});
+
+	it('shows picker when SheetManager.hide never settles', async () => {
+		(SheetManager.getActiveSheets as jest.Mock).mockImplementation((id: string) => [
+			{ id, context: 'global' },
+		]);
+		(SheetManager.hide as jest.Mock).mockReturnValue(new Promise(() => undefined));
+		const stored = JSON.stringify(parsedA);
+		const genA = nextRequestGeneration();
+		const processA = processStoredDeepLink({
+			deepLink: stored,
+			generation: genA,
+			dispatch,
+			signedUpPubkys,
+			allPubkys: signedUpPubkys,
+			callbacks: {},
+			getStoredDeepLink: (): string => stored,
+		});
+		await flushMicrotasks();
+		expect(openPickers).toHaveLength(0);
+
+		await flushHides();
+		await flushSleep();
+		expect(openPickers).toHaveLength(1);
+
+		openPickers[0].payload.onSelect('pk:one');
+		await flushHides();
+		await processA;
+		expect(routeInput).toHaveBeenCalledTimes(1);
 	});
 });

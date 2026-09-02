@@ -17,6 +17,14 @@ describe('ConfirmAuth auth error contract', () => {
 		'utf8',
 	);
 
+	it('does not fire Deny or Authorize on leftover press-in from the picker tap', () => {
+		expect(source).not.toMatch(/onPressIn=/);
+		expect(source).not.toMatch(/sheetArmed/);
+		expect(source).not.toMatch(/CONFIRM_SHEET_ARM_MS/);
+		expect(source).toMatch(/testID="ConfirmAuthDenyButton"[\s\S]*onPress=\{handleClose\}/);
+		expect(source).toMatch(/testID="ConfirmAuthAuthorizeButton"[\s\S]*onPress=\{handleAuth\}/);
+	});
+
 	it('sanitizes failures and does not copy raw error text', () => {
 		expect(source).toMatch(/sanitizeAuthError/);
 		expect(source).toMatch(/runConfirmAuthGrant/);

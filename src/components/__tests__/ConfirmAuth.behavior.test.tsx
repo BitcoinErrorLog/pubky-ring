@@ -52,21 +52,23 @@ jest.mock('react-native-toast-message', () => ({
 jest.mock('../../theme/components', () => {
 	const ReactLib = require('react');
 	const ReactNative = require('react-native');
-	const Mock = ({ children, testID, onPressIn, disabled }: {
+	const Mock = ({ children, testID, onPress, onPressIn, disabled }: {
 		children?: unknown;
 		testID?: string;
+		onPress?: () => void;
 		onPressIn?: () => void;
 		disabled?: boolean;
 	}) =>
 		ReactLib.createElement(
 			ReactNative.Pressable,
-			{ testID, onPress: disabled ? undefined : onPressIn, disabled },
+			{ testID, onPress, onPressIn, disabled },
 			children,
 		);
 	return {
 		ActionButton: Mock,
-		ActionSheetContainer: ({ children }: { children?: unknown }) =>
-			ReactLib.createElement(ReactNative.View, null, children),
+		ActionSheetContainer: ({ children }: { children?: unknown }) => {
+			return ReactLib.createElement(ReactNative.View, null, children);
+		},
 		AnimatedView: ({ children }: { children?: unknown }) =>
 			ReactLib.createElement(ReactNative.View, null, children),
 		Folder: () => null,
@@ -153,7 +155,7 @@ describe('ConfirmAuth render behavior', () => {
 
 		await act(async () => {
 			const button = findByTestId(renderer!.root, 'ConfirmAuthAuthorizeButton');
-			(button.props.onPressIn ?? button.props.onPress)();
+			button.props.onPress();
 		});
 
 		expect(performAuth).not.toHaveBeenCalled();
@@ -183,7 +185,7 @@ describe('ConfirmAuth render behavior', () => {
 
 		await act(async () => {
 			const button = findByTestId(renderer!.root, 'ConfirmAuthAuthorizeButton');
-			(button.props.onPressIn ?? button.props.onPress)();
+			button.props.onPress();
 		});
 
 		expect(performAuth).toHaveBeenCalledWith(expect.objectContaining({
@@ -216,7 +218,7 @@ describe('ConfirmAuth render behavior', () => {
 
 		await act(async () => {
 			const button = findByTestId(renderer!.root, 'ConfirmAuthAuthorizeButton');
-			(button.props.onPressIn ?? button.props.onPress)();
+			button.props.onPress();
 		});
 
 		expect(performAuth).toHaveBeenCalled();
@@ -258,7 +260,7 @@ describe('ConfirmAuth render behavior', () => {
 
 		await act(async () => {
 			const button = findByTestId(renderer!.root, 'ConfirmAuthAuthorizeButton');
-			(button.props.onPressIn ?? button.props.onPress)();
+			button.props.onPress();
 		});
 
 		expect(performAuth).toHaveBeenCalled();
@@ -272,6 +274,96 @@ describe('ConfirmAuth render behavior', () => {
 		});
 
 		expect(moveTaskToBackground).not.toHaveBeenCalled();
+	});
+
+	it('does not hide or grant in the first second without interaction', async () => {
+		jest.useFakeTimers();
+		try {
+			const current = nextRequestGeneration();
+			const store = createStore();
+			const { SheetManager } = require('react-native-actions-sheet');
+			await act(async () => {
+				create(
+					<Provider store={store}>
+						<ConfirmAuth
+							payload={{
+								pubky: 'pk:current',
+								authUrl: 'pubkyauth:///?secret=current',
+								authDetails,
+								onComplete: jest.fn(),
+								requestGeneration: current,
+							}}
+						/>
+					</Provider>,
+				);
+			});
+			await act(async () => {
+				jest.advanceTimersByTime(1000);
+			});
+			expect(SheetManager.hide).not.toHaveBeenCalled();
+			expect(performAuth).not.toHaveBeenCalled();
+		} finally {
+			jest.useRealTimers();
+		}
+	});
+
+	it('does not close or grant from onPressIn alone', async () => {
+		const current = nextRequestGeneration();
+		const store = createStore();
+		const { SheetManager } = require('react-native-actions-sheet');
+		let renderer: ReturnType<typeof create>;
+		await act(async () => {
+			renderer = create(
+				<Provider store={store}>
+					<ConfirmAuth
+						payload={{
+							pubky: 'pk:current',
+							authUrl: 'pubkyauth:///?secret=current',
+							authDetails,
+							onComplete: jest.fn(),
+							requestGeneration: current,
+						}}
+					/>
+				</Provider>,
+			);
+		});
+
+		await act(async () => {
+			const deny = findByTestId(renderer!.root, 'ConfirmAuthDenyButton');
+			const authorize = findByTestId(renderer!.root, 'ConfirmAuthAuthorizeButton');
+			deny.props.onPressIn?.();
+			authorize.props.onPressIn?.();
+		});
+		expect(SheetManager.hide).not.toHaveBeenCalled();
+		expect(performAuth).not.toHaveBeenCalled();
+	});
+
+	it('closes on Deny onPress', async () => {
+		const current = nextRequestGeneration();
+		const store = createStore();
+		const { SheetManager } = require('react-native-actions-sheet');
+		let renderer: ReturnType<typeof create>;
+		await act(async () => {
+			renderer = create(
+				<Provider store={store}>
+					<ConfirmAuth
+						payload={{
+							pubky: 'pk:current',
+							authUrl: 'pubkyauth:///?secret=current',
+							authDetails,
+							onComplete: jest.fn(),
+							requestGeneration: current,
+						}}
+					/>
+				</Provider>,
+			);
+		});
+
+		await act(async () => {
+			findByTestId(renderer!.root, 'ConfirmAuthDenyButton').props.onPress();
+		});
+		expect(SheetManager.hide).toHaveBeenCalledWith('confirm-auth');
+		expect(performAuth).not.toHaveBeenCalled();
 	});
 });
 

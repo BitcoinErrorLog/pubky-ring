@@ -62,13 +62,65 @@ export const shouldAuthorizeRequest = (generation: number | undefined): boolean 
 	return typeof generation === 'number' && isCurrentRequest(generation);
 };
 
+/**
+ * SheetManager.hide() never resolves when that id is not in
+ * renderedSheetIds, and still publishes hide_wrap. getActiveSheets uses
+ * that same registry, so a reported-empty id is the unrendered case:
+ * calling hide would hang and can close a later same-id sheet via
+ * hide_wrap. Skip only that empty report.
+ *
+ * If getActiveSheets is missing, treat the sheet as present and bound
+ * hide at 400ms rather than trusting emptiness. 400ms is only for an
+ * already-rendered (or unknown) sheet whose hide() hangs.
+ */
+export const HIDE_SHEET_TIMEOUT_MS = 400;
+
+const activeAuthSheetCount = (id: (typeof AUTH_FLOW_SHEETS)[number]): number => {
+	if (typeof SheetManager.getActiveSheets !== 'function') {
+		return 1;
+	}
+	const active = SheetManager.getActiveSheets(id);
+	return Array.isArray(active) ? active.length : 0;
+};
+
+export const hideAuthFlowSheet = (
+	id: (typeof AUTH_FLOW_SHEETS)[number],
+): Promise<void> => {
+	if (activeAuthSheetCount(id) === 0) {
+		return Promise.resolve();
+	}
+	return new Promise((resolve) => {
+		let settled = false;
+		const finish = (): void => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			resolve();
+		};
+		const timer = setTimeout(finish, HIDE_SHEET_TIMEOUT_MS);
+		try {
+			const hidden = SheetManager.hide(id) as Promise<unknown> | undefined;
+			if (typeof hidden?.then === 'function') {
+				hidden.then(finish, finish).finally(() => {
+					clearTimeout(timer);
+				});
+				return;
+			}
+			clearTimeout(timer);
+			finish();
+		} catch {
+			clearTimeout(timer);
+			finish();
+		}
+	});
+};
+
 export const hideAuthFlowSheets = async (): Promise<void> => {
 	if (openCameraSession !== null) {
 		supersededCameraSession = openCameraSession;
 	}
-	await Promise.all(
-		AUTH_FLOW_SHEETS.map((id) => Promise.resolve(SheetManager.hide(id))),
-	);
+	await Promise.all(AUTH_FLOW_SHEETS.map((id) => hideAuthFlowSheet(id)));
 };
 
 export const beginAuthRequest = async (): Promise<number> => {

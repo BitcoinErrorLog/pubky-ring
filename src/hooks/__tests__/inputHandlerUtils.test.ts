@@ -80,6 +80,9 @@ describe('showPubkySelectionSheet', () => {
 		(SheetManager.hide as jest.Mock).mockResolvedValue(undefined);
 		(SheetManager.hideAll as jest.Mock).mockResolvedValue(undefined);
 		(SheetManager.show as jest.Mock).mockResolvedValue(undefined);
+		(SheetManager.getActiveSheets as jest.Mock).mockImplementation((id: string) => [
+			{ id, context: 'global' },
+		]);
 	});
 
 	it('resolves selected when onClose fires after a real selection', async () => {
@@ -91,6 +94,19 @@ describe('showPubkySelectionSheet', () => {
 		options.onClose();
 
 		await expect(resultPromise).resolves.toEqual({ kind: 'selected', pubky: 'pk:selected' });
+	});
+
+	it('late picker onClose after select does not hide confirm-auth', async () => {
+		const resultPromise = showPubkySelectionSheet(parsed);
+		await flushShow();
+
+		const options = getShowOptions();
+		options.payload.onSelect('pk:selected');
+		options.onClose();
+		await resultPromise;
+
+		expect(SheetManager.hide).toHaveBeenCalledWith('select-pubky');
+		expect(SheetManager.hide).not.toHaveBeenCalledWith('confirm-auth');
 	});
 
 	it('does not let a late onClose cancel a selection already in flight', async () => {

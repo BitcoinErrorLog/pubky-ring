@@ -3,6 +3,7 @@ import { StyleSheet, ViewStyle } from 'react-native';
 import { Canvas, Rect } from '@shopify/react-native-skia';
 import {
 	Easing,
+	ReduceMotion,
 	cancelAnimation,
 	useSharedValue,
 	withTiming,
@@ -46,6 +47,8 @@ const ProgressBar = ({
 	const progress = useSharedValue(0);
 	const opacity = useSharedValue(fadeIn ? 0 : 1);
 	const completedOnce = useRef(false);
+	const onCompleteRef = useRef(onComplete);
+	onCompleteRef.current = onComplete;
 
 	// Handle delayed rendering
 	useEffect(() => {
@@ -70,6 +73,14 @@ const ProgressBar = ({
 		progress.value = 0;
 		opacity.value = fadeIn ? 0 : 1;
 
+		const notifyComplete = (): void => {
+			if (completedOnce.current) {
+				return;
+			}
+			completedOnce.current = true;
+			onCompleteRef.current?.();
+		};
+
 		// Handle fade in animation
 		if (fadeIn) {
 			opacity.value = withTiming(1, {
@@ -78,27 +89,36 @@ const ProgressBar = ({
 			});
 		}
 
-		// Start progress animation after delay
-		const timer = setTimeout(() => {
+		const startProgress = (): void => {
 			progress.value = withTiming(
 				1,
-				{ duration, easing: Easing.linear },
+				{
+					duration,
+					easing: Easing.linear,
+					reduceMotion: ReduceMotion.Never,
+				},
 				(finished) => {
-					if (finished && onComplete && !completedOnce.current) {
-						completedOnce.current = true;
-						scheduleOnRN(onComplete);
+					if (!finished) {
+						return;
 					}
+					scheduleOnRN(notifyComplete);
 				},
 			);
-		}, delayStart);
+		};
+		const timer = delayStart > 0
+			? setTimeout(startProgress, delayStart)
+			: (startProgress(), undefined);
 
 		return (): void => {
-			clearTimeout(timer);
+			if (timer !== undefined) {
+				clearTimeout(timer);
+			}
 			cancelAnimation(progress);
 			cancelAnimation(opacity);
 		};
+		// onComplete is read from a ref so identity changes do not restart the timer.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [shouldRender, duration, delayStart, fadeIn, fadeInDuration, onComplete]);
+	}, [shouldRender, duration, delayStart, fadeIn, fadeInDuration]);
 
 	if (!shouldRender) {
 		return (<View style={[

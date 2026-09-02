@@ -17,6 +17,7 @@ import {
 	tryClearOwnedDeepLink,
 } from '../utils/ownedDeepLink';
 import i18n from '../i18n';
+import { hideAuthFlowSheet } from '../utils/authRequestGeneration';
 
 export interface PubkyCallbacks {
 	createPubky?: () => Promise<void>;
@@ -151,7 +152,7 @@ export const showPubkySelectionSheet = async (
 	replaceActivePicker();
 	activePicker = { id, settle: settleOutcome };
 
-	await SheetManager.hide('select-pubky');
+	await hideAuthFlowSheet('select-pubky');
 	if (settled) {
 		return result;
 	}
@@ -178,7 +179,7 @@ export const showPubkySelectionSheet = async (
 				if (activePicker?.id === id) {
 					activePicker = null;
 				}
-				Promise.resolve(SheetManager.hide('select-pubky')).finally(() => {
+				void hideAuthFlowSheet('select-pubky').finally(() => {
 					resolveResult({ kind: 'selected', pubky: selectedPubky });
 				});
 			},

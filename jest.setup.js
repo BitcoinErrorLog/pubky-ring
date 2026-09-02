@@ -53,6 +53,7 @@ jest.mock('react-native-actions-sheet', () => ({
 		show: jest.fn().mockResolvedValue(undefined),
 		hide: jest.fn().mockResolvedValue(undefined),
 		hideAll: jest.fn().mockResolvedValue(undefined),
+		getActiveSheets: jest.fn(() => []),
 	},
 	registerSheet: jest.fn(),
 	default: jest.fn(() => null),
@@ -103,7 +104,9 @@ jest.mock('react-native-reanimated', () => ({
 	useAnimatedStyle: jest.fn(() => ({})),
 	withTiming: jest.fn((v) => v),
 	withSpring: jest.fn((v) => v),
-	Easing: { linear: jest.fn() },
+	cancelAnimation: jest.fn(),
+	ReduceMotion: { Never: 'never', System: 'system', Always: 'always' },
+	Easing: { linear: jest.fn(), ease: jest.fn() },
 	Extrapolation: { CLAMP: 'clamp' },
 }));
 
@@ -112,6 +115,11 @@ jest.mock('react-native-worklets', () => ({
 	Worklets: {
 		createRunInJsFn: jest.fn((fn) => fn),
 	},
+	scheduleOnRN: jest.fn((fn) => {
+		if (typeof fn === 'function') {
+			fn();
+		}
+	}),
 }));
 
 // Mock crypto for generateRequestId

@@ -258,7 +258,7 @@ const ConfirmAuth = ({ payload }: { payload: ConfirmAuthProps }): ReactElement =
 								<ActionButton
                             		testID="ConfirmAuthDenyButton"
                             		style={styles.denyButton}
-                            		onPressIn={handleClose}
+                            		onPress={handleClose}
                             		activeOpacity={0.7}
                             	>
 									<Text numberOfLines={1} style={styles.actionButtonText}>{authorizing ? t('common.close') : t('auth.deny')}</Text>
@@ -267,7 +267,7 @@ const ConfirmAuth = ({ payload }: { payload: ConfirmAuthProps }): ReactElement =
 								<ActionButton
                             		testID="ConfirmAuthAuthorizeButton"
                             		style={[styles.authorizeButton, authorizing && styles.buttonDisabled]}
-                            		onPressIn={handleAuth}
+                            		onPress={handleAuth}
                             		disabled={authorizing}
                             		activeOpacity={0.7}
                             	>
@@ -275,7 +275,7 @@ const ConfirmAuth = ({ payload }: { payload: ConfirmAuthProps }): ReactElement =
 								</ActionButton>
 							</>
                         ) : (
-	<ActionButton style={styles.okButton} onPressIn={handleClose}>
+	<ActionButton testID="ConfirmAuthOkButton" style={styles.okButton} onPress={handleClose}>
 		<Text style={styles.buttonText}>{t('common.ok')}</Text>
 	</ActionButton>
                         )}

@@ -270,6 +270,23 @@ describe('authAction', () => {
 			expect(performAuth).not.toHaveBeenCalled();
 		});
 
+		it('shows confirm-auth without forcing a provider context', async () => {
+			const data = createActionData();
+			const resultPromise = handleAuthAction(data, mockContext);
+			await jest.runAllTimersAsync();
+			await resultPromise;
+
+			expect(SheetManager.show).toHaveBeenCalledWith(
+				'confirm-auth',
+				expect.objectContaining({
+					payload: expect.objectContaining({
+						pubky: 'test-pubky-z32',
+					}),
+				}),
+			);
+			expect((SheetManager.show as jest.Mock).mock.calls[0][1].context).toBeUndefined();
+		});
+
 		it('passes returnToCaller on the confirm-auth payload for Android deeplinks', async () => {
 			(shouldReturnToPreviousApp as jest.Mock).mockReturnValue(true);
 			const data = createActionData();
