@@ -60,6 +60,7 @@ import {
 	showToast,
 	hideToastIfKind,
 	PAYKIT_CONNECT_RELAY_FAILURE_TOAST,
+	sleep,
 } from '../helpers';
 import { getErrorMessage } from '../errorHandler';
 import { getPubkyDataFromStore } from '../store-helpers';
@@ -72,6 +73,7 @@ import {
 	formatRingVerificationCode,
 } from '../ringCallbackChannel';
 import { requestPaykitConnectConfirmation } from '../confirmPaykitConnect';
+import { hideAuthFlowSheets } from '../authRequestGeneration';
 import {
 	formatPaykitConnectDestination,
 	parsePaykitConnectCaps,
@@ -244,13 +246,16 @@ export const isAllowedHttpsPaykitCallback = (callback: string): boolean => {
 };
 
 const ALLOWED_AUTH_RELAY_HOST = 'httprelay.pubky.app';
+const ALLOWED_AUTH_RELAY_PATHS = new Set(['/link', '/link/', '/inbox', '/inbox/']);
+const PAYKIT_REJECT_TOAST_DELAY_MS = 150;
 
 /**
  * Combined-grant `relay=` allowlist (R5). Fail closed: only the first-party
  * httprelay base used by pubkyauth. Attacker-chosen relay would receive the
  * AuthToken ciphertext and, knowing `secret` from the QR, could decrypt it
  * and POST /session. Scheme exactly https; no userinfo, port, trailing-dot,
- * query, or fragment. Path exactly `/link/` or `/link`.
+ * query, or fragment. Path exactly `/link`, `/link/`, `/inbox`, or `/inbox/`
+ * (pubkyauth's production default posts to `/inbox`).
  *
  * Custom-scheme paykit-connect must not carry `relay` at all (R7).
  */
@@ -308,13 +313,12 @@ export const assertAllowedAuthRelay = (relay: string): boolean => {
 		return false;
 	}
 	if (
-		parsed.pathname !== '/link/' &&
-		parsed.pathname !== '/link' &&
-		parsed.pathname !== '/'
+		parsed.pathname !== '/' &&
+		!ALLOWED_AUTH_RELAY_PATHS.has(parsed.pathname)
 	) {
 		return false;
 	}
-	if (rawPath !== '/link/' && rawPath !== '/link') {
+	if (!ALLOWED_AUTH_RELAY_PATHS.has(rawPath)) {
 		return false;
 	}
 
@@ -383,32 +387,34 @@ const isAllowedPaykitCallback = (callback: string | undefined): boolean => {
 	return false;
 };
 
-const rejectInvalidCallback = (): Result<string> => {
+const rejectPaykitConnect = async (
+	gate: string,
+	descriptionKey: string,
+	extra?: { kind?: string; errMessage?: string },
+): Promise<Result<string>> => {
+	console.warn(`[PaykitConnect] rejected gate=${gate}`);
+	await hideAuthFlowSheets();
+	await sleep(PAYKIT_REJECT_TOAST_DELAY_MS);
 	showToast({
 		type: 'error',
 		title: i18n.t('common.error'),
-		description: i18n.t('session.invalidCallback'),
+		description: i18n.t(descriptionKey),
+		kind: extra?.kind,
 	});
-	return err(i18n.t('session.invalidCallback'));
+	return err(extra?.errMessage ?? i18n.t(descriptionKey));
 };
 
-const rejectStaleHypercolorQr = (): Result<string> => {
-	showToast({
-		type: 'error',
-		title: i18n.t('common.error'),
-		description: i18n.t('session.paykitConnectStaleQr'),
-	});
-	return err(i18n.t('session.paykitConnectStaleQr'));
-};
+const rejectInvalidCallback = (): Promise<Result<string>> =>
+	rejectPaykitConnect('callback', 'session.invalidCallback');
 
-const rejectMalformedHypercolorQr = (): Result<string> => {
-	showToast({
-		type: 'error',
-		title: i18n.t('common.error'),
-		description: i18n.t('session.paykitConnectMalformedRequest'),
-	});
-	return err(i18n.t('session.paykitConnectMalformedRequest'));
-};
+const rejectStaleHypercolorQr = (): Promise<Result<string>> =>
+	rejectPaykitConnect('staleQr', 'session.paykitConnectStaleQr');
+
+const rejectRelayNotAllowlisted = (): Promise<Result<string>> =>
+	rejectPaykitConnect('relay', 'session.paykitConnectRelayRejected');
+
+const rejectMalformedHypercolorQr = (): Promise<Result<string>> =>
+	rejectPaykitConnect('deviceId', 'session.paykitConnectMalformedRequest');
 
 const withBoundedTimeout = async <T>(work: Promise<T>, timeoutMs: number): Promise<T> => {
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -767,8 +773,11 @@ export const handlePaykitConnectAction = async (
 	// Missing secret/relay on https is the stale-web-tab case (P4-4), not a
 	// generic invalid callback.
 	if (isHttpsCallback) {
-		if (!isValidPaykitAuthSecret(secret) || !relay || !assertAllowedAuthRelay(relay)) {
+		if (!isValidPaykitAuthSecret(secret) || !relay) {
 			return rejectStaleHypercolorQr();
+		}
+		if (!assertAllowedAuthRelay(relay)) {
+			return rejectRelayNotAllowlisted();
 		}
 		// Pin the first-party grant at intake, before the sheet and before
 		// any sign-in. Safer than waiting for postPubkyAuthThenLocator, and
@@ -1224,35 +1233,23 @@ const extractRelayChannelId = (callback: string): string | null => {
 	return ch;
 };
 
-const rejectRelayPostFailed = (chPrefix: string, status: string | number): Result<string> => {
+const rejectRelayPostFailed = (
+	chPrefix: string,
+	status: string | number,
+): Promise<Result<string>> => {
 	// Log only ch prefix + status. Never the locator body or full ch.
 	console.log('[PaykitConnectAction] Relay POST ch prefix:', chPrefix, 'status:', status);
-	showToast({
-		type: 'error',
-		title: i18n.t('common.error'),
-		description: i18n.t('session.webHandoffRelayFailed'),
+	return rejectPaykitConnect('locator', 'session.webHandoffRelayFailed', {
 		kind: PAYKIT_CONNECT_RELAY_FAILURE_TOAST,
+		errMessage: 'Relay post failed',
 	});
-	return err('Relay post failed');
 };
 
-const rejectAuthPostFailed = (): Result<string> => {
-	showToast({
-		type: 'error',
-		title: i18n.t('common.error'),
-		description: i18n.t('session.paykitConnectAuthFailed'),
-	});
-	return err(i18n.t('session.paykitConnectAuthFailed'));
-};
+const rejectAuthPostFailed = (): Promise<Result<string>> =>
+	rejectPaykitConnect('auth', 'session.paykitConnectAuthFailed');
 
-const rejectCapsMismatch = (): Result<string> => {
-	showToast({
-		type: 'error',
-		title: i18n.t('common.error'),
-		description: i18n.t('session.paykitConnectCapsMismatch'),
-	});
-	return err(i18n.t('session.paykitConnectCapsMismatch'));
-};
+const rejectCapsMismatch = (): Promise<Result<string>> =>
+	rejectPaykitConnect('caps', 'session.paykitConnectCapsMismatch');
 
 /**
  * POST the public locator to httprelay. Body field names match
@@ -1348,9 +1345,13 @@ const postPubkyAuthThenLocator = async ({
 	secret: string;
 	relay: string;
 }): Promise<Result<string>> => {
-	if (!assertAllowedAuthRelay(relay) || !isValidPaykitAuthSecret(secret)) {
+	if (!isValidPaykitAuthSecret(secret)) {
 		await deleteHandoffBlobBestEffort(handoffBlobUrl(pubky, requestId), ed25519SecretKey);
-		return rejectInvalidCallback();
+		return rejectStaleHypercolorQr();
+	}
+	if (!assertAllowedAuthRelay(relay)) {
+		await deleteHandoffBlobBestEffort(handoffBlobUrl(pubky, requestId), ed25519SecretKey);
+		return rejectRelayNotAllowlisted();
 	}
 
 	const qrCaps = (caps ?? []).slice();

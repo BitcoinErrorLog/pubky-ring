@@ -989,6 +989,69 @@ describe('paykitConnectAction', () => {
 			);
 		});
 
+		it('rejects https callback when relay is not allowlisted', async () => {
+			const result = await handlePaykitConnectAction(
+				createHttpsActionData({
+					relay: 'https://evil.example/inbox',
+				}),
+				mockContext
+			);
+
+			expect(result.isErr()).toBe(true);
+			expect(SheetManager.show).not.toHaveBeenCalled();
+			expect(signAndPostAuthToken).not.toHaveBeenCalled();
+			expect(showToast).toHaveBeenCalledWith(
+				expect.objectContaining({
+					description: 'session.paykitConnectRelayRejected',
+				})
+			);
+		});
+
+		it('live Hypercolor /inbox QR reaches the confirmation sheet', async () => {
+			const dummySecret = 'ERERERERERERERERERERERERERERERERERERERERERE';
+			const liveQr =
+				'pubkyring://paykit-connect?deviceId=hypercolor-web-1a0735d3cc1' +
+				'&callback=https%3A%2F%2Fhypercolor.app%2Fring-callback%3Fch%3DkyUN68nRIGdjphAGCXTswOAKxZhIBWJpaUlQt9MdqSw' +
+				'&ephemeralPk=427115e5f93750a5721b89a39b8ffc9e3694e910ef686cb821176c3cca14777b' +
+				'&caps=%2Fpub%2Fpaykit%2F%3Arw%2C%2Fpub%2Fhypercolor.app%2Fv1%2F%3Arw' +
+				`&secret=${dummySecret}` +
+				'&relay=https%3A%2F%2Fhttprelay.pubky.app%2Finbox&v=2';
+			const parsed = await parseInput(liveQr, 'scan');
+			expect(isPaykitConnectAction(parsed.data)).toBe(true);
+			if (!isPaykitConnectAction(parsed.data)) {
+				return;
+			}
+			expect(parsed.data.params.relay).toBe('https://httprelay.pubky.app/inbox');
+			expect(parsed.data.params.secret).toHaveLength(43);
+
+			(isE2EAutoApproveEnabled as jest.Mock).mockReturnValue(false);
+			(SheetManager.show as jest.Mock).mockImplementation(() => Promise.resolve());
+
+			const pending = handlePaykitConnectAction(parsed.data, mockContext);
+			let shown = false;
+			for (let i = 0; i < 20; i += 1) {
+				await Promise.resolve();
+				if ((SheetManager.show as jest.Mock).mock.calls.some((call) => call[0] === 'confirm-paykit-connect')) {
+					shown = true;
+					break;
+				}
+			}
+			expect(shown).toBe(true);
+			expect(signAndPostAuthToken).not.toHaveBeenCalled();
+
+			const showMock = SheetManager.show as jest.Mock;
+			showMock.mock.calls[0][1].payload.onDecision(true);
+			await pending;
+
+			expect(signAndPostAuthToken).toHaveBeenCalledWith(
+				expect.objectContaining({
+					authUrl: expect.stringContaining(
+						`relay=${encodeURIComponent('https://httprelay.pubky.app/inbox')}`
+					),
+				})
+			);
+		});
+
 		it('rejects custom-scheme callbacks that carry secret or relay', async () => {
 			const result = await handlePaykitConnectAction(
 				createActionData({

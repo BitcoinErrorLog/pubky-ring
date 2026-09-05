@@ -154,6 +154,7 @@
     "signInFailed": "Fallo al iniciar sesión",
     "invalidCallback": "URL de devolución de llamada no válida proporcionada",
     "paykitConnectStaleQr": "Este código está desactualizado. Recarga hypercolor.app y escanea el código nuevo.",
+    "paykitConnectRelayRejected": "Esta solicitud usa un relé no admitido. Recarga hypercolor.app e inténtalo de nuevo.",
     "paykitConnectMalformedRequest": "Esta solicitud está malformada. Recarga hypercolor.app y escanea el código nuevo.",
     "cannotOpenCallback": "No se puede abrir la URL de devolución de llamada para devolver la sesión",
     "webHandoffApproved": "Aprobado. Vuelve a tu navegador para continuar.",

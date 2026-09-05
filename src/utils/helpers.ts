@@ -9,7 +9,7 @@
 import { Dispatch } from 'redux';
 import Toast from 'react-native-toast-message';
 import { ToastType } from 'react-native-toast-message/lib/src/types';
-import { Dimensions, Platform, Share } from 'react-native';
+import { Dimensions, Platform, Share, StatusBar } from 'react-native';
 import { getIsOnline } from './store-helpers.ts';
 import NetInfo from '@react-native-community/netinfo';
 import { updateIsOnline } from '../store/slices/settingsSlice.ts';
@@ -160,7 +160,7 @@ export const PAYKIT_CONNECT_RELAY_FAILURE_TOAST = 'paykit-connect-relay-failed';
 const defaultOptions = {
 	autoHide: true,
 	visibilityTime: 4000,
-	topOffset: Platform.OS === 'ios' ? 40 : 0,
+	topOffset: Platform.OS === 'ios' ? 40 : Math.max(StatusBar.currentHeight ?? 0, 24),
 };
 
 let lastToastKind: string | undefined;

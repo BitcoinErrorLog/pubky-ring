@@ -10,6 +10,8 @@ const ACCEPTED_AUTH_RELAYS = [
 	'https://httprelay.pubky.app/link',
 	'HTTPS://HTTPRELAY.PUBKY.APP/link/',
 	'HTTPS://httprelay.pubky.app/link',
+	'https://httprelay.pubky.app/inbox',
+	'https://httprelay.pubky.app/inbox/',
 ] as const;
 
 const REJECTED_AUTH_RELAYS = [
@@ -25,6 +27,12 @@ const REJECTED_AUTH_RELAYS = [
 	'https://httprelay.pubky.app./link/',
 	'https://user:pass@httprelay.pubky.app/link/',
 	'https://httprelay.pubky.app/link/extra',
+	'https://httprelay.pubky.app/inboxx',
+	'https://httprelay.pubky.app/inbox/../link',
+	'https://httprelay.pubky.app/Inbox',
+	'https://httprelay.pubky.app/inbox?x',
+	'https://httprelay.pubky.app/inbox#f',
+	'https://httprelay.pubky.app.evil/inbox',
 ] as const;
 
 const MATRIX = [

@@ -224,6 +224,7 @@ import { put, list, get, deleteFile } from '@synonymdev/react-native-pubky';
 import {
 	resetRequestGenerationForTests,
 } from '../../authRequestGeneration';
+import { showToast } from '../../helpers';
 
 const AUTH_SECRET = 'ERERERERERERERERERERERERERERERERERERERERERE';
 const AUTH_RELAY = 'https://httprelay.pubky.app/link/';
@@ -721,5 +722,35 @@ describe('combined https grant event-faithful', () => {
 			cancelDeferredHandoffDeletes();
 			jest.useRealTimers();
 		}
+	});
+
+	it('shows relay-reject toast only after the select-pubky picker has closed', async () => {
+		const order: string[] = [];
+		(showToast as jest.Mock).mockImplementation(() => {
+			order.push('toast');
+		});
+		const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+		faithful.show('select-pubky', {
+			payload: { onDecision: (): void => {} },
+			onClose: (): void => {
+				order.push('picker-closed');
+			},
+		});
+
+		const result = await handlePaykitConnectAction({
+			...data,
+			params: {
+				...data.params,
+				relay: 'https://evil.example/inbox',
+			},
+		}, context);
+
+		expect(result.isErr()).toBe(true);
+		expect(String(result.error)).toContain('session.paykitConnectRelayRejected');
+		expect(faithful.shows.filter((id) => id === 'confirm-paykit-connect')).toEqual([]);
+		expect(order).toEqual(['picker-closed', 'toast']);
+		expect(warnSpy).toHaveBeenCalledWith('[PaykitConnect] rejected gate=relay');
+		warnSpy.mockRestore();
 	});
 });
