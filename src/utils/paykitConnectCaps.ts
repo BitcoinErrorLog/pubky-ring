@@ -27,7 +27,7 @@ export const parsePaykitConnectCaps = (caps: string[] | undefined): PaykitConnec
 
 /**
  * Destination line for the confirmation sheet.
- * https → "hypercolor.app — web browser"
+ * https → "hypercolor.app — web browser via Pubky HTTP relay"
  * custom scheme → "hypercolor:// app on this device"
  */
 export const formatPaykitConnectDestination = (

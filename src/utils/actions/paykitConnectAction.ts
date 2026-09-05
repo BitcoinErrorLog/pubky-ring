@@ -237,7 +237,7 @@ const rejectInvalidCallback = (): Result<string> => {
 		title: i18n.t('common.error'),
 		description: i18n.t('session.invalidCallback'),
 	});
-	return err('Invalid callback URL');
+	return err(i18n.t('session.invalidCallback'));
 };
 
 /**

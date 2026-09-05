@@ -5,8 +5,12 @@
 import { SheetManager } from 'react-native-actions-sheet';
 import { InputAction, ParsedInput } from '../../utils/inputParser';
 import { setDeepLink } from '../../store/slices/pubkysSlice';
+import { err } from '@synonymdev/result';
+import { routeInput } from '../../utils/inputRouter';
+import { showToast } from '../../utils/helpers';
 import {
 	resetPickerSessionForTests,
+	routeInputWithContext,
 	showPubkySelectionSheet,
 } from '../inputHandlerUtils';
 
@@ -218,5 +222,51 @@ describe('showPubkySelectionSheet', () => {
 		await flushShow();
 		getShowOptions().payload.onSelect('pk:second');
 		await expect(second).resolves.toEqual({ kind: 'selected', pubky: 'pk:second' });
+	});
+});
+
+const parsedPaykit: ParsedInput = {
+	action: InputAction.PaykitConnect,
+	data: {
+		action: InputAction.PaykitConnect,
+		params: {
+			deviceId: 'device-1',
+			callback: 'https://hypercolor.app/ring-callback?ch=abc',
+		},
+	},
+	source: 'scan',
+	rawInput: 'pubkyring://paykit-connect?deviceId=device-1',
+};
+
+describe('routeInputWithContext paykit toast suppression', () => {
+	beforeEach(() => {
+		jest.clearAllMocks();
+	});
+
+	it('does not show a second toast when paykit deny already toasted', async () => {
+		(routeInput as jest.Mock).mockResolvedValue(err('session.paykitConnectDenied'));
+
+		await routeInputWithContext(parsedPaykit, 'pk:one', 'scan', jest.fn());
+
+		expect(showToast).not.toHaveBeenCalled();
+	});
+
+	it('does not show a second toast when paykit invalidCallback already toasted', async () => {
+		(routeInput as jest.Mock).mockResolvedValue(err('session.invalidCallback'));
+
+		await routeInputWithContext(parsedPaykit, 'pk:one', 'scan', jest.fn());
+
+		expect(showToast).not.toHaveBeenCalled();
+	});
+
+	it('still shows an error toast for other paykit failures', async () => {
+		(routeInput as jest.Mock).mockResolvedValue(err('homeserver unreachable'));
+
+		await routeInputWithContext(parsedPaykit, 'pk:one', 'scan', jest.fn());
+
+		expect(showToast).toHaveBeenCalledWith(expect.objectContaining({
+			type: 'error',
+			autoHide: false,
+		}));
 	});
 });

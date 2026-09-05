@@ -42,6 +42,7 @@ import { shouldAuthorizeRequest } from '../utils/authRequestGeneration';
 import { copyToClipboard } from '../utils/clipboard';
 import { PaykitConnectConfirmPayload } from '../utils/confirmPaykitConnect';
 import { PaykitConnectCapability } from '../utils/paykitConnectCaps';
+import { DEVICE_ID_DISPLAY_MAX, sanitizeDisplayString } from '../utils/sanitizeDisplayString';
 
 const toastStyle = getToastStyle();
 const smallScreen = isSmallScreen();
@@ -79,7 +80,7 @@ const Permission = memo(({
 		<View style={styles.permissionRow}>
 			<Folder size={13} />
 			<View style={styles.pathContainer}>
-				<Text style={styles.pathText}>{capability.path}</Text>
+				<Text style={styles.pathText}>{sanitizeDisplayString(capability.path)}</Text>
 			</View>
 			<View style={styles.permissionsContainer}>
 				{hasReadPermission && (
@@ -180,7 +181,9 @@ const ConfirmPaykitConnect = ({
 						<SessionText style={styles.sectionTitle}>
 							{t('session.paykitConnectDeviceId')}
 						</SessionText>
-						<Text style={styles.relayText}>{deviceId}</Text>
+						<Text style={styles.relayText}>
+							{sanitizeDisplayString(deviceId, DEVICE_ID_DISPLAY_MAX)}
+						</Text>
 					</View>
 
 					<View style={styles.section} testID="ConfirmPaykitConnectVerification">

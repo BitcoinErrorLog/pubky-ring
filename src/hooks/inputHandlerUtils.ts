@@ -59,7 +59,10 @@ export const routeInputWithContext = async (
 		// toast with debug dump is spam.
 		if (
 			parsed.action === InputAction.PaykitConnect &&
-			errorMessage === i18n.t('session.paykitConnectDenied')
+			(
+				errorMessage === i18n.t('session.paykitConnectDenied') ||
+				errorMessage === i18n.t('session.invalidCallback')
+			)
 		) {
 			return;
 		}

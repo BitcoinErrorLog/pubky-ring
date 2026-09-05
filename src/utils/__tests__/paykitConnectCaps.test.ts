@@ -21,14 +21,17 @@ describe('parsePaykitConnectCaps', () => {
 });
 
 describe('formatPaykitConnectDestination', () => {
-	const labels = { webBrowser: 'web browser', appOnDevice: 'app on this device' };
+	const labels = {
+		webBrowser: 'web browser via Pubky HTTP relay',
+		appOnDevice: 'app on this device',
+	};
 
-	it('shows the https host as a browser destination', () => {
+	it('shows the https host as a browser destination via the HTTP relay', () => {
 		expect(formatPaykitConnectDestination(
 			'https://hypercolor.app/ring-callback?ch=abc',
 			true,
 			labels,
-		)).toBe('hypercolor.app — web browser');
+		)).toBe('hypercolor.app — web browser via Pubky HTTP relay');
 	});
 
 	it('shows the custom scheme as an on-device app', () => {

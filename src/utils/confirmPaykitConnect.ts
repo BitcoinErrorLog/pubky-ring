@@ -78,14 +78,13 @@ export const requestPaykitConnectConfirmation = async (
 					if (settled) {
 						return;
 					}
-					// Decision: hide first so onClose cannot race-settle denied
-					// after a real Approve (same as select-pubky).
+					// Latch before hide. SheetManager.hide publishes onclose_<id>,
+					// which fires this show's onClose first (Map insertion order).
+					// Same as select-pubky's onSelect (inputHandlerUtils.ts).
+					settled = true;
 					const finish = (): void => {
-						if (!isCurrentRequest(generation)) {
-							settle('superseded');
-							return;
-						}
-						settle(approved ? 'approved' : 'denied');
+						SystemNavigationBar.navigationShow().then();
+						resolve(isCurrentRequest(generation) ? (approved ? 'approved' : 'denied') : 'superseded');
 					};
 					hideAuthFlowSheet('confirm-paykit-connect').then(finish, finish);
 				},

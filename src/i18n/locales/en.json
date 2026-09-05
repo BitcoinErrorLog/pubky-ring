@@ -163,7 +163,7 @@
     "paykitConnectDeviceId": "Device ID",
     "paykitConnectVerification": "Verification code — should match the code shown on the page",
     "paykitConnectWarning": "Another app or browser session will be able to act as this pubky.",
-    "webBrowser": "web browser",
+    "webBrowser": "web browser via Pubky HTTP relay",
     "appOnThisDevice": "app on this device"
   },
   "errors": {
