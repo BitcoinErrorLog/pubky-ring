@@ -55,6 +55,14 @@ export const routeInputWithContext = async (
 		}
 
 		const errorMessage = getErrorMessage(result.error, i18n.t('errors.unknownError'));
+		// Decision: deny already showed one info toast. A second error
+		// toast with debug dump is spam.
+		if (
+			parsed.action === InputAction.PaykitConnect &&
+			errorMessage === i18n.t('session.paykitConnectDenied')
+		) {
+			return;
+		}
 
 		// Do not log rawInput: pubkyauth URLs contain secrets.
 		const debugInfo = JSON.stringify({

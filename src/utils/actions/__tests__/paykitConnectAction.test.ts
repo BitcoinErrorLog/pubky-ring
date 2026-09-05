@@ -13,11 +13,19 @@ import {
 } from '../../inputParser';
 import { ActionContext } from '../../inputRouter';
 import { DEFAULT_HOMESERVER } from '../../constants';
+import { SheetManager } from 'react-native-actions-sheet';
+import { isE2EAutoApproveEnabled } from '../../e2eAutoApprove';
+import {
+	deriveRingCallbackChannelId,
+	formatRingVerificationCode,
+} from '../../ringCallbackChannel';
 
 const HYPERCOLOR_WEB_CALLBACK =
 	'https://hypercolor.app/ring-callback?ch=8eOwP5zDIW4PwXitMsHu3RdUDCF60o3DTwI-firPVT8';
 const HYPERCOLOR_RELAY_URL =
 	'https://httprelay.pubky.app/link/hc-8eOwP5zDIW4PwXitMsHu3RdUDCF60o3DTwI-firPVT8';
+const HYPERCOLOR_EPHEMERAL_PK =
+	'c9aaad5b10794814e6ca4a5a18ea2aebb0467c83fd45515ab1634910e6a0b172';
 const HYPERCOLOR_WEB_LOGIN_QR =
 	'pubkyring://paykit-connect?deviceId=hypercolor-web-1a070b03cdc&callback=https%3A%2F%2Fhypercolor.app%2Fring-callback%3Fch%3D8eOwP5zDIW4PwXitMsHu3RdUDCF60o3DTwI-firPVT8&ephemeralPk=c9aaad5b10794814e6ca4a5a18ea2aebb0467c83fd45515ab1634910e6a0b172&caps=%2Fpub%2Fpaykit%2F%3Arw%2C%2Fpub%2Fhypercolor.app%2Fv1%2F%3Arw';
 
@@ -69,8 +77,18 @@ jest.mock('../../PubkyNoiseModule', () => ({
 	sb2GenerateContextId: jest.fn(),
 }));
 
+jest.mock('../../e2eAutoApprove', () => ({
+	isE2EAutoApproveEnabled: jest.fn(),
+}));
+
+jest.mock('../../constants', () => ({
+	...jest.requireActual('../../constants'),
+	AUTH_SHEET_DELAY: 0,
+}));
+
 jest.mock('../../helpers', () => ({
 	showToast: jest.fn(),
+	sleep: jest.fn(() => Promise.resolve()),
 }));
 
 jest.mock('../../errorHandler', () => ({
@@ -125,6 +143,8 @@ const createErrResult = (message: string) => ({
 describe('paykitConnectAction', () => {
 	const mockDispatch = jest.fn();
 	const mockEphemeralPk = 'a'.repeat(64); // 32 bytes as hex
+	const mockMatchingCh = deriveRingCallbackChannelId(mockEphemeralPk);
+	const mockHttpsCallback = `https://hypercolor.app/ring-callback?ch=${mockMatchingCh}`;
 	const mockSecretKey = 'b'.repeat(64);
 	const mockContext: ActionContext = {
 		dispatch: mockDispatch,
@@ -143,8 +163,17 @@ describe('paykitConnectAction', () => {
 		},
 	});
 
+	const autoApproveSheet = (): void => {
+		(SheetManager.show as jest.Mock).mockImplementation((_id, options) => {
+			options?.payload?.onDecision?.(true);
+			return Promise.resolve();
+		});
+	};
+
 	beforeEach(() => {
 		jest.clearAllMocks();
+		(isE2EAutoApproveEnabled as jest.Mock).mockReturnValue(false);
+		autoApproveSheet();
 		mockFetch.mockReset();
 		mockFetch.mockResolvedValue({ ok: true, status: 200 });
 		global.fetch = mockFetch as unknown as typeof fetch;
@@ -293,9 +322,9 @@ describe('paykitConnectAction', () => {
 		);
 
 		it.each([
-			'https://hypercolor.app/ring-callback?ch=abc',
-			'https://www.hypercolor.app/ring-callback?ch=abc',
-			'HTTPS://hypercolor.app/ring-callback?ch=abc',
+			`https://hypercolor.app/ring-callback?ch=${mockMatchingCh}`,
+			`https://www.hypercolor.app/ring-callback?ch=${mockMatchingCh}`,
+			`HTTPS://hypercolor.app/ring-callback?ch=${mockMatchingCh}`,
 		])('should accept first-party https callback %s without opening a browser', async (callback) => {
 			const data = createActionData({ callback });
 
@@ -669,7 +698,10 @@ describe('paykitConnectAction', () => {
 			expect(isAllowedHttpsPaykitCallback(HYPERCOLOR_WEB_CALLBACK)).toBe(true);
 
 			const result = await handlePaykitConnectAction(
-				createActionData({ callback: HYPERCOLOR_WEB_CALLBACK }),
+				createActionData({
+					callback: HYPERCOLOR_WEB_CALLBACK,
+					ephemeralPk: HYPERCOLOR_EPHEMERAL_PK,
+				}),
 				mockContext
 			);
 
@@ -702,7 +734,10 @@ describe('paykitConnectAction', () => {
 			}
 
 			const result = await handlePaykitConnectAction(
-				createActionData({ callback: HYPERCOLOR_WEB_CALLBACK }),
+				createActionData({
+					callback: HYPERCOLOR_WEB_CALLBACK,
+					ephemeralPk: HYPERCOLOR_EPHEMERAL_PK,
+				}),
 				mockContext
 			);
 
@@ -739,6 +774,116 @@ describe('paykitConnectAction', () => {
 					description: 'session.invalidCallback',
 				})
 			);
+		});
+
+		it('denies without sign-in, fetch, or Linking', async () => {
+			(SheetManager.show as jest.Mock).mockImplementation((_id, options) => {
+				options?.payload?.onDecision?.(false);
+				return Promise.resolve();
+			});
+
+			const result = await handlePaykitConnectAction(
+				createActionData(),
+				mockContext
+			);
+
+			expect(result.isErr()).toBe(true);
+			if (result.isErr()) {
+				expect(String(result.error)).toContain('session.paykitConnectDenied');
+			}
+			expect(signInToHomeserver).not.toHaveBeenCalled();
+			expect(mockFetch).not.toHaveBeenCalled();
+			expect(Linking.openURL).not.toHaveBeenCalled();
+			expect(Linking.canOpenURL).not.toHaveBeenCalled();
+			expect(showToast).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: 'info',
+					description: 'session.paykitConnectDenied',
+				})
+			);
+		});
+
+		it('passes host, deviceId, caps, and verification code for https', async () => {
+			const caps = ['/pub/paykit/:rw', '/pub/hypercolor.app/v1/:rw'];
+			await handlePaykitConnectAction(
+				createActionData({
+					callback: mockHttpsCallback,
+					deviceId: 'hypercolor-web-1a070b03cdc',
+					caps,
+				}),
+				mockContext
+			);
+
+			expect(SheetManager.show).toHaveBeenCalledWith(
+				'confirm-paykit-connect',
+				expect.objectContaining({
+					payload: expect.objectContaining({
+						pubky: 'test-pubky-z32',
+						destination: 'hypercolor.app — session.webBrowser',
+						deviceId: 'hypercolor-web-1a070b03cdc',
+						capabilities: [
+							{ path: '/pub/paykit/', permission: 'rw' },
+							{ path: '/pub/hypercolor.app/v1/', permission: 'rw' },
+						],
+						verificationCode: formatRingVerificationCode(mockMatchingCh),
+					}),
+				})
+			);
+		});
+
+		it('passes scheme destination for a custom-scheme callback', async () => {
+			await handlePaykitConnectAction(
+				createActionData({ callback: 'hypercolor://paykit-setup', deviceId: 'dev-9' }),
+				mockContext
+			);
+
+			expect(SheetManager.show).toHaveBeenCalledWith(
+				'confirm-paykit-connect',
+				expect.objectContaining({
+					payload: expect.objectContaining({
+						destination: 'hypercolor:// session.appOnThisDevice',
+						deviceId: 'dev-9',
+						verificationCode: formatRingVerificationCode(mockMatchingCh),
+					}),
+				})
+			);
+		});
+
+		it('rejects https ch↔ephemeralPk mismatch before the sheet', async () => {
+			const result = await handlePaykitConnectAction(
+				createActionData({
+					callback: 'https://hypercolor.app/ring-callback?ch=abc',
+				}),
+				mockContext
+			);
+
+			expect(result.isErr()).toBe(true);
+			expect(SheetManager.show).not.toHaveBeenCalled();
+			expect(signInToHomeserver).not.toHaveBeenCalled();
+			expect(mockFetch).not.toHaveBeenCalled();
+			expect(showToast).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: 'error',
+					description: 'session.invalidCallback',
+				})
+			);
+		});
+
+		it('real Hypercolor QR: derived ch matches the callback channel', () => {
+			const parsedCh = '8eOwP5zDIW4PwXitMsHu3RdUDCF60o3DTwI-firPVT8';
+			const ephemeralPk =
+				'c9aaad5b10794814e6ca4a5a18ea2aebb0467c83fd45515ab1634910e6a0b172';
+			expect(deriveRingCallbackChannelId(ephemeralPk)).toBe(parsedCh);
+			expect(formatRingVerificationCode(parsedCh)).toBe('8eO-wP5');
+		});
+
+		it('skips the sheet when Debug/E2E auto-approve is on', async () => {
+			(isE2EAutoApproveEnabled as jest.Mock).mockReturnValue(true);
+
+			await handlePaykitConnectAction(createActionData(), mockContext);
+
+			expect(SheetManager.show).not.toHaveBeenCalled();
+			expect(signInToHomeserver).toHaveBeenCalled();
 		});
 
 		it('custom-scheme callback still uses openURL and never fetch', async () => {

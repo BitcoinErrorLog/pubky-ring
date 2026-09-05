@@ -155,7 +155,16 @@
     "invalidCallback": "Invalid callback URL provided",
     "cannotOpenCallback": "Cannot open callback URL to return session",
     "webHandoffApproved": "Approved. Return to your browser to continue.",
-    "webHandoffRelayFailed": "Could not reach your browser. Please rescan the QR code."
+    "webHandoffRelayFailed": "Could not reach your browser. Please rescan the QR code.",
+    "paykitConnectTitle": "Connect Paykit",
+    "paykitConnectApprove": "Approve",
+    "paykitConnectDenied": "Paykit connect denied",
+    "paykitConnectDestination": "Destination",
+    "paykitConnectDeviceId": "Device ID",
+    "paykitConnectVerification": "Verification code — should match the code shown on the page",
+    "paykitConnectWarning": "Another app or browser session will be able to act as this pubky.",
+    "webBrowser": "web browser",
+    "appOnThisDevice": "app on this device"
   },
   "errors": {
     "failedToParseQR": "Failed to parse QR code data",

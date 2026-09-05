@@ -7,7 +7,9 @@
 
 import { SheetManager } from 'react-native-actions-sheet';
 
-export const AUTH_FLOW_SHEETS = ['select-pubky', 'confirm-auth', 'camera'] as const;
+// Decision: paykit confirm is an auth-flow sheet so a newer scan/deeplink
+// hides it and a leftover Approve cannot grant after supersession.
+export const AUTH_FLOW_SHEETS = ['select-pubky', 'confirm-auth', 'confirm-paykit-connect', 'camera'] as const;
 
 let currentGeneration = 0;
 let cameraSessionSeq = 0;

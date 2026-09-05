@@ -154,8 +154,17 @@
     "signInFailed": "Fallo al iniciar sesión",
     "invalidCallback": "URL de devolución de llamada no válida proporcionada",
     "cannotOpenCallback": "No se puede abrir la URL de devolución de llamada para devolver la sesión",
-    "webHandoffApproved": "Approved. Return to your browser to continue.",
-    "webHandoffRelayFailed": "Could not reach your browser. Please rescan the QR code."
+    "webHandoffApproved": "Aprobado. Vuelve a tu navegador para continuar.",
+    "webHandoffRelayFailed": "No se pudo contactar con tu navegador. Vuelve a escanear el código QR.",
+    "paykitConnectTitle": "Conectar Paykit",
+    "paykitConnectApprove": "Aprobar",
+    "paykitConnectDenied": "Conexión de Paykit denegada",
+    "paykitConnectDestination": "Destino",
+    "paykitConnectDeviceId": "ID del dispositivo",
+    "paykitConnectVerification": "Código de verificación: debe coincidir con el código que se muestra en la página",
+    "paykitConnectWarning": "Otra aplicación o sesión del navegador podrá actuar como este pubky.",
+    "webBrowser": "navegador web",
+    "appOnThisDevice": "aplicación en este dispositivo"
   },
   "errors": {
     "failedToParseQR": "Fallo al analizar los datos del código QR",

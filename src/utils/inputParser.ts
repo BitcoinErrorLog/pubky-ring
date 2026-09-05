@@ -79,6 +79,9 @@ export interface PaykitConnectParams {
 	callback: string;
 	includeEpoch1?: boolean; // Include epoch 1 keypair for rotation, defaults to true
 	ephemeralPk?: string; // Optional: Bitkit's ephemeral X25519 public key for secure handoff
+	// Decision: surface the QR `caps` on the confirmation sheet. Not used
+	// for the homeserver session itself (that comes from sign-in).
+	caps?: string[];
 }
 
 // Sign message parameters
@@ -265,6 +268,8 @@ const parsePaykitConnectParams = (queryString: string): PaykitConnectParams | nu
 		const includeEpoch1Str = params.get('includeEpoch1');
 		const includeEpoch1 = includeEpoch1Str === 'false' ? false : true; // Default to true
 		const ephemeralPk = params.get('ephemeralPk') || undefined;
+		const capsRaw = params.get('caps') || '';
+		const caps = capsRaw.split(',').filter(Boolean);
 		// Third decode: pre-decode loop + parseQueryPairs already decoded.
 		// Kept for parity when the whole-string loop stops early (malformed `%`
 		// in a sibling param) and callback is still percent-encoded. Hypercolor
@@ -274,6 +279,7 @@ const parsePaykitConnectParams = (queryString: string): PaykitConnectParams | nu
 			callback: decodeURIComponent(callback),
 			includeEpoch1,
 			ephemeralPk,
+			caps,
 		};
 	} catch {
 		return null;

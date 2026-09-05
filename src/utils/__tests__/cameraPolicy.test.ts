@@ -31,10 +31,11 @@ describe('auth-flow camera policy', () => {
 		expect(SheetManager.hide).toHaveBeenCalledWith('camera');
 		expect(SheetManager.hide).toHaveBeenCalledWith('select-pubky');
 		expect(SheetManager.hide).toHaveBeenCalledWith('confirm-auth');
+		expect(SheetManager.hide).toHaveBeenCalledWith('confirm-paykit-connect');
 		expect(SheetManager.hide).not.toHaveBeenCalledWith('backup-prompt');
 		expect(SheetManager.hide).not.toHaveBeenCalledWith('edit-pubky');
 		expect(SheetManager.hideAll).not.toHaveBeenCalled();
-		expect(AUTH_FLOW_SHEETS).toEqual(['select-pubky', 'confirm-auth', 'camera']);
+		expect(AUTH_FLOW_SHEETS).toEqual(['select-pubky', 'confirm-auth', 'confirm-paykit-connect', 'camera']);
 	});
 
 	it('skips the camera hide when the camera is reported unrendered', async () => {

@@ -307,6 +307,10 @@ describe('inputParser', () => {
 				expect(result.data.params.callback).toBe(HYPERCOLOR_CALLBACK);
 				expect(result.data.params.deviceId).toBe('hypercolor-web-1a070b03cdc');
 				expect(result.data.params.ephemeralPk).toBe(HYPERCOLOR_EPHEMERAL_PK);
+				expect(result.data.params.caps).toEqual([
+					'/pub/paykit/:rw',
+					'/pub/hypercolor.app/v1/:rw',
+				]);
 				expect(isAllowedHttpsPaykitCallback(result.data.params.callback)).toBe(true);
 			}
 		});

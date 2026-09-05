@@ -52,6 +52,15 @@ import { DEFAULT_HOMESERVER } from '../constants';
 import { parseQueryPairs } from '../queryParams';
 import i18n from '../../i18n';
 import {
+	deriveRingCallbackChannelId,
+	formatRingVerificationCode,
+} from '../ringCallbackChannel';
+import { requestPaykitConnectConfirmation } from '../confirmPaykitConnect';
+import {
+	formatPaykitConnectDestination,
+	parsePaykitConnectCaps,
+} from '../paykitConnectCaps';
+import {
 	deriveX25519ForDeviceEpoch as nativeDeriveX25519,
 	deriveNoiseSeed as nativeDeriveNoiseSeed,
 	isNativeModuleAvailable,
@@ -434,6 +443,43 @@ export const handlePaykitConnectAction = async (
 			description: 'Invalid ephemeral public key format',
 		});
 		return err('ephemeralPk must be a 64-character hex string (32 bytes)');
+	}
+
+	const derivedChannelId = deriveRingCallbackChannelId(ephemeralPk);
+	// Decision: bind relay `ch` to the encryption key before any UI or
+	// network. A swapped QR with an attacker `ch` and the victim's
+	// ephemeralPk (or vice versa) must not reach the sheet.
+	if (isAllowedHttpsPaykitCallback(callback)) {
+		const callbackCh = extractRelayChannelId(callback);
+		if (callbackCh === null || callbackCh !== derivedChannelId) {
+			return rejectInvalidCallback();
+		}
+	}
+
+	const confirmation = await requestPaykitConnectConfirmation({
+		pubky,
+		destination: formatPaykitConnectDestination(
+			callback,
+			isAllowedHttpsPaykitCallback(callback),
+			{
+				webBrowser: i18n.t('session.webBrowser'),
+				appOnDevice: i18n.t('session.appOnThisDevice'),
+			},
+		),
+		deviceId,
+		capabilities: parsePaykitConnectCaps(data.params.caps),
+		verificationCode: formatRingVerificationCode(derivedChannelId),
+	});
+	if (confirmation === 'superseded') {
+		return ok('superseded');
+	}
+	if (confirmation === 'denied') {
+		showToast({
+			type: 'info',
+			title: i18n.t('session.paykitConnectDenied'),
+			description: i18n.t('session.paykitConnectDenied'),
+		});
+		return err(i18n.t('session.paykitConnectDenied'));
 	}
 
 	try {

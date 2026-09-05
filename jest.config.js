@@ -6,7 +6,7 @@ module.exports = {
 	},
 	// Transform ESM modules that Jest can't handle natively
 	transformIgnorePatterns: [
-		'node_modules/(?!(react-native|@react-native|react-native-actions-sheet|react-native-toast-message|react-native-system-navigation-bar|react-native-gesture-handler|react-native-reanimated|react-native-worklets|@react-native-community|@react-navigation|lucide-react-native|react-native-svg|@shopify|bip39)/)',
+		'node_modules/(?!(react-native|@react-native|react-native-actions-sheet|react-native-toast-message|react-native-system-navigation-bar|react-native-gesture-handler|react-native-reanimated|react-native-worklets|@react-native-community|@react-navigation|lucide-react-native|react-native-svg|@shopify|bip39|@noble)/)',
 	],
 	// Use node test environment for unit tests
 	testEnvironment: 'node',

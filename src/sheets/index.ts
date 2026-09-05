@@ -4,6 +4,7 @@ import { registerSheet, SheetDefinition } from 'react-native-actions-sheet';
 const QRScanner = lazy(() => import('../components/QRScanner.tsx'));
 const BackupPrompt = lazy(() => import('../components/BackupPrompt.tsx'));
 const ConfirmAuth = lazy(() => import('../components/ConfirmAuth.tsx'));
+const ConfirmPaykitConnect = lazy(() => import('../components/ConfirmPaykitConnect.tsx'));
 const DeletePubky = lazy(() => import('../components/DeletePubky.tsx'));
 const AddPubky = lazy(() => import('../components/AddPubky.tsx'));
 const NewPubkySetup = lazy(() => import('../components/PubkySetup/NewPubkySetup.tsx'));
@@ -19,6 +20,7 @@ registerSheet('camera', QRScanner as any);
 registerSheet('backup-prompt', BackupPrompt as any);
 registerSheet('recovery-phrase-prompt', RecoveryPhrasePrompt as any);
 registerSheet('confirm-auth', ConfirmAuth as any);
+registerSheet('confirm-paykit-connect', ConfirmPaykitConnect as any);
 registerSheet('delete-pubky', DeletePubky as any);
 registerSheet('new-pubky-setup', NewPubkySetup as any);
 registerSheet('select-backup-preference', SelectBackupPreference as any);
@@ -48,6 +50,17 @@ declare module 'react-native-actions-sheet' {
 				onComplete?: () => void;
 				returnToCaller?: boolean;
 				requestGeneration?: number;
+			};
+		}>;
+		'confirm-paykit-connect': SheetDefinition<{
+			payload: {
+				pubky: string;
+				destination: string;
+				deviceId: string;
+				capabilities: Array<{ path: string; permission: string }>;
+				verificationCode: string;
+				requestGeneration: number;
+				onDecision?: (approved: boolean) => void;
 			};
 		}>;
 		'delete-pubky': SheetDefinition;
