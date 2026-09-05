@@ -22,6 +22,9 @@ jest.mock('react-native', () => ({
 	},
 	Dimensions: { get: () => ({ width: 400, height: 800 }) },
 	Share: { share: jest.fn() },
+	AppState: {
+		currentState: 'active',
+	},
 	NativeEventEmitter: class {
 		addListener(): { remove: () => void } {
 			return { remove: (): void => undefined };
@@ -124,7 +127,10 @@ jest.mock('react-native-actions-sheet', () => ({
 	default: jest.fn(() => null),
 }));
 
-import { handlePaykitConnectAction } from '../paykitConnectAction';
+import {
+	cancelDeferredHandoffDeletes,
+	handlePaykitConnectAction,
+} from '../paykitConnectAction';
 import { InputAction } from '../../inputParser';
 import { signInToHomeserver, getPubkySecretKey, signAndPostAuthToken } from '../../pubky';
 import {
@@ -231,6 +237,10 @@ describe('native auth contract (real JS wrapper)', () => {
 		(sb2Sign as jest.Mock).mockResolvedValue('signedBase64Envelope');
 		(put as jest.Mock).mockResolvedValue(ok(undefined));
 		mockNativeAuth.mockResolvedValue(['false', 'Authorization success']);
+	});
+
+	afterEach(() => {
+		cancelDeferredHandoffDeletes();
 	});
 
 	afterAll(() => {

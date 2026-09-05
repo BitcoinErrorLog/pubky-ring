@@ -4,7 +4,11 @@
  * Tests the Paykit connect flow including secure handoff with encrypted payloads.
  */
 
-import { handlePaykitConnectAction, isAllowedHttpsPaykitCallback } from '../paykitConnectAction';
+import {
+	cancelDeferredHandoffDeletes,
+	handlePaykitConnectAction,
+	isAllowedHttpsPaykitCallback,
+} from '../paykitConnectAction';
 import {
 	InputAction,
 	PaykitConnectParams,
@@ -42,6 +46,9 @@ jest.mock('react-native', () => {
 		Linking: {
 			openURL: jest.fn().mockResolvedValue(undefined),
 			canOpenURL: jest.fn().mockResolvedValue(true),
+		},
+		AppState: {
+			currentState: 'active',
 		},
 		NativeModules: {
 			Pubky: {
@@ -266,6 +273,10 @@ describe('paykitConnectAction', () => {
 		(list as jest.Mock).mockResolvedValue(createOkResult([]));
 		(get as jest.Mock).mockResolvedValue(createErrResult('not found'));
 		(deleteFile as jest.Mock).mockResolvedValue(createOkResult(undefined));
+	});
+
+	afterEach(() => {
+		cancelDeferredHandoffDeletes();
 	});
 
 	afterAll(() => {

@@ -40,7 +40,7 @@
  */
 
 import { Result, ok, err } from '@synonymdev/result';
-import { Linking } from 'react-native';
+import { AppState, Linking } from 'react-native';
 import {
 	put as originalPut,
 	list as originalList,
@@ -138,8 +138,21 @@ const RELAY_CHANNEL_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const RELAY_POST_TIMEOUT_MS = 30_000;
 const HANDOFF_STORAGE_PREFIX = '/pub/paykit.app/v0/handoff/';
 const HANDOFF_TTL_SECONDS = 5 * 60;
+const HANDOFF_TTL_MS = HANDOFF_TTL_SECONDS * 1000;
 const HANDOFF_SWEEP_LIMIT = 20;
 const HANDOFF_DELETE_TIMEOUT_MS = 5_000;
+const deferredHandoffDeletes = new Set<ReturnType<typeof setTimeout>>();
+
+/**
+ * Drop pending +5 min handoff DELETEs. The next connect's stale sweep
+ * covers any blob that outlives this process.
+ */
+export const cancelDeferredHandoffDeletes = (): void => {
+	for (const timer of deferredHandoffDeletes) {
+		clearTimeout(timer);
+	}
+	deferredHandoffDeletes.clear();
+};
 
 const CALLBACK_SCHEME_RE = /^([a-z][a-z0-9+.-]*):\/\//i;
 
@@ -441,6 +454,20 @@ const deleteHandoffBlobBestEffort = async (
 	} catch {
 		console.warn('[PaykitConnectAction] Handoff blob delete failed');
 	}
+};
+
+const scheduleDeferredHandoffDelete = (url: string, secretKey: string): void => {
+	const timer = setTimeout(() => {
+		deferredHandoffDeletes.delete(timer);
+		// Only if Ring is still foreground. Process death is covered by
+		// the next-connect sweep; a backgrounded app skips the network
+		// call rather than racing a suspended fetch.
+		if (AppState.currentState !== 'active') {
+			return;
+		}
+		deleteHandoffBlobBestEffort(url, secretKey).catch(() => undefined);
+	}, HANDOFF_TTL_MS);
+	deferredHandoffDeletes.add(timer);
 };
 
 const readHandoffCreatedAt = async (url: string): Promise<number | null> => {
@@ -1251,7 +1278,13 @@ const publishHttpsHandoffToRelay = async ({
 			return rejectRelayPostFailed(chPrefix, response.status);
 		}
 		console.log('[PaykitConnectAction] Relay POST ch prefix:', chPrefix, 'status:', response.status);
-		await deleteHandoffBlobBestEffort(handoffBlobUrl(pubky, requestId), ed25519SecretKey);
+		// Do not DELETE now: the web learns requestId from this locator
+		// then GETs the blob (404 retries). Immediate delete races login.
+		// This requestId is removed at expires_at if Ring is still alive.
+		scheduleDeferredHandoffDelete(
+			handoffBlobUrl(pubky, requestId),
+			ed25519SecretKey,
+		);
 		showToast({
 			type: 'success',
 			title: i18n.t('session.success'),

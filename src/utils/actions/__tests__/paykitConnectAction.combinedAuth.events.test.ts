@@ -113,6 +113,9 @@ jest.mock('react-native', () => ({
 		openURL: jest.fn().mockResolvedValue(undefined),
 		canOpenURL: jest.fn().mockResolvedValue(true),
 	},
+	AppState: {
+		currentState: 'active',
+	},
 	NativeModules: {
 		Pubky: {
 			put: jest.fn().mockResolvedValue(['success', 'stored-url']),
@@ -197,7 +200,10 @@ jest.mock('../../store-helpers', () => ({
 
 import { SheetManager } from 'react-native-actions-sheet';
 import { Linking } from 'react-native';
-import { handlePaykitConnectAction } from '../paykitConnectAction';
+import {
+	cancelDeferredHandoffDeletes,
+	handlePaykitConnectAction,
+} from '../paykitConnectAction';
 import { InputAction } from '../../inputParser';
 import { signInToHomeserver, getPubkySecretKey, signAndPostAuthToken } from '../../pubky';
 import {
@@ -324,6 +330,10 @@ describe('combined https grant event-faithful', () => {
 		});
 	});
 
+	afterEach(() => {
+		cancelDeferredHandoffDeletes();
+	});
+
 	afterAll(() => {
 		global.fetch = originalFetch;
 	});
@@ -447,15 +457,24 @@ describe('combined https grant event-faithful', () => {
 		expect(mockFetch).not.toHaveBeenCalled();
 	});
 
-	it('deletes the requestId-scoped handoff blob after a 2xx locator POST', async () => {
-		const pending = handlePaykitConnectAction(data, context);
-		const options = await flushShow();
-		options.payload.onDecision(true);
-		await pending;
+	it('does not delete the requestId blob immediately after a 2xx locator POST; defers +5 min', async () => {
+		jest.useFakeTimers();
+		try {
+			const pending = handlePaykitConnectAction(data, context);
+			const options = await flushShow();
+			options.payload.onDecision(true);
+			await pending;
 
-		const handoffUrl =
-			`pubky://test-pubky-z32/pub/paykit.app/v0/handoff/${'i'.repeat(64)}`;
-		expect(deleteFile).toHaveBeenCalledWith(handoffUrl, 'b'.repeat(64));
+			const handoffUrl =
+				`pubky://test-pubky-z32/pub/paykit.app/v0/handoff/${'i'.repeat(64)}`;
+			expect(deleteFile).not.toHaveBeenCalledWith(handoffUrl, 'b'.repeat(64));
+
+			await jest.advanceTimersByTimeAsync(5 * 60 * 1000);
+			expect(deleteFile).toHaveBeenCalledWith(handoffUrl, 'b'.repeat(64));
+		} finally {
+			cancelDeferredHandoffDeletes();
+			jest.useRealTimers();
+		}
 	});
 
 	it('deletes the requestId-scoped handoff blob when auth POST fails', async () => {
