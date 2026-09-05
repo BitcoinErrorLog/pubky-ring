@@ -56,12 +56,17 @@ export const routeInputWithContext = async (
 
 		const errorMessage = getErrorMessage(result.error, i18n.t('errors.unknownError'));
 		// Decision: deny already showed one info toast. A second error
-		// toast with debug dump is spam.
+		// toast with debug dump is spam. Combined-grant auth/caps/relay
+		// failures already toasted in the action.
 		if (
 			parsed.action === InputAction.PaykitConnect &&
 			(
 				errorMessage === i18n.t('session.paykitConnectDenied') ||
-				errorMessage === i18n.t('session.invalidCallback')
+				errorMessage === i18n.t('session.invalidCallback') ||
+				errorMessage === i18n.t('session.paykitConnectAuthFailed') ||
+				errorMessage === i18n.t('session.paykitConnectCapsMismatch') ||
+				errorMessage === i18n.t('session.webHandoffRelayFailed') ||
+				errorMessage === 'Relay post failed'
 			)
 		) {
 			return;

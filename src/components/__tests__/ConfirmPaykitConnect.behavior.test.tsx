@@ -139,6 +139,7 @@ describe('ConfirmPaykitConnect render behavior', () => {
 							verificationCode: '8eO-wP5',
 							requestGeneration: current,
 							onDecision,
+							includesWebSession: true,
 						}}
 					/>
 				</Provider>,
@@ -149,8 +150,9 @@ describe('ConfirmPaykitConnect render behavior', () => {
 		expect(text).toContain('hypercolor.app — web browser');
 		expect(text).toContain('hypercolor-web-1');
 		expect(text).toContain('8eO-wP5');
-		expect(text).toContain('session.paykitConnectWarning');
+		expect(text).toContain('session.paykitConnectSessionLine');
 		expect(text).toContain('/pub/paykit/');
+		expect(text).toContain('DMs / Paykit');
 		expect(findByTestId(renderer!.root, 'ConfirmPaykitConnectDestination')).toBeTruthy();
 		expect(findByTestId(renderer!.root, 'ConfirmPaykitConnectDeviceId')).toBeTruthy();
 		expect(findByTestId(renderer!.root, 'ConfirmPaykitConnectVerification')).toBeTruthy();

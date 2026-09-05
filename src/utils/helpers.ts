@@ -179,6 +179,10 @@ export const showToast = ({
 	});
 };
 
+export const hideToast = (): void => {
+	Toast.hide();
+};
+
 export const shareData = async (data: string): Promise<void> => {
 	try {
 		await Share.share({

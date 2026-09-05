@@ -1,6 +1,7 @@
 import {
 	formatPaykitConnectDestination,
 	parsePaykitConnectCaps,
+	paykitConnectCapSetsEqual,
 } from '../paykitConnectCaps';
 
 describe('parsePaykitConnectCaps', () => {
@@ -17,6 +18,13 @@ describe('parsePaykitConnectCaps', () => {
 	it('returns an empty list when caps are missing', () => {
 		expect(parsePaykitConnectCaps(undefined)).toEqual([]);
 		expect(parsePaykitConnectCaps([])).toEqual([]);
+	});
+
+	it('treats wr as rw when comparing cap sets', () => {
+		expect(paykitConnectCapSetsEqual(
+			['/pub/paykit/:wr', '/pub/hypercolor.app/v1/:rw'],
+			['/pub/hypercolor.app/v1/:rw', '/pub/paykit/:rw'],
+		)).toBe(true);
 	});
 });
 

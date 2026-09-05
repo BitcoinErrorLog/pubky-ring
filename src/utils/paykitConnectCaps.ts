@@ -25,6 +25,57 @@ export const parsePaykitConnectCaps = (caps: string[] | undefined): PaykitConnec
 	});
 };
 
+/** wr → rw (Rust capability order). Used for QR vs granted-set compare. */
+export const normalizeCapabilityAction = (permission: string): string => {
+	if (permission === 'wr') {
+		return 'rw';
+	}
+	return permission;
+};
+
+export const canonicalizePaykitConnectCap = (raw: string): string => {
+	const match = raw.match(/^(.*):([rw]+)$/);
+	if (!match) {
+		return raw;
+	}
+	return `${match[1]}:${normalizeCapabilityAction(match[2])}`;
+};
+
+export const serializePaykitConnectCaps = (caps: string[] | undefined): string => {
+	if (!caps || caps.length === 0) {
+		return '';
+	}
+	return caps.map(canonicalizePaykitConnectCap).join(',');
+};
+
+export const paykitConnectCapSetsEqual = (a: string[], b: string[]): boolean => {
+	if (a.length !== b.length) {
+		return false;
+	}
+	const left = new Set(a.map(canonicalizePaykitConnectCap));
+	const right = new Set(b.map(canonicalizePaykitConnectCap));
+	if (left.size !== right.size) {
+		return false;
+	}
+	for (const item of left) {
+		if (!right.has(item)) {
+			return false;
+		}
+	}
+	return true;
+};
+
+/** Design §3 scope annotation. Empty when the path is not a known grant. */
+export const annotatePaykitConnectCap = (path: string): string => {
+	if (path === '/pub/paykit/' || path === '/pub/paykit') {
+		return 'DMs / Paykit';
+	}
+	if (path.startsWith('/pub/hypercolor.app/')) {
+		return 'this site';
+	}
+	return '';
+};
+
 /**
  * Destination line for the confirmation sheet.
  * https → "hypercolor.app — web browser via Pubky HTTP relay"

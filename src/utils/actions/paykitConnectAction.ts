@@ -44,12 +44,13 @@ import { Linking } from 'react-native';
 import { put as originalPut } from '@synonymdev/react-native-pubky';
 import { InputAction, PaykitConnectParams } from '../inputParser';
 import { ActionContext } from '../inputRouter';
-import { signInToHomeserver, getPubkySecretKey } from '../pubky';
-import { showToast } from '../helpers';
+import { signInToHomeserver, getPubkySecretKey, signAndPostAuthToken } from '../pubky';
+import { showToast, hideToast } from '../helpers';
 import { getErrorMessage } from '../errorHandler';
 import { getPubkyDataFromStore } from '../store-helpers';
 import { DEFAULT_HOMESERVER } from '../constants';
 import { parseQueryPairs } from '../queryParams';
+import { Buffer } from 'buffer';
 import i18n from '../../i18n';
 import {
 	deriveRingCallbackChannelId,
@@ -59,6 +60,8 @@ import { requestPaykitConnectConfirmation } from '../confirmPaykitConnect';
 import {
 	formatPaykitConnectDestination,
 	parsePaykitConnectCaps,
+	paykitConnectCapSetsEqual,
+	serializePaykitConnectCaps,
 } from '../paykitConnectCaps';
 import {
 	deriveX25519ForDeviceEpoch as nativeDeriveX25519,
@@ -212,6 +215,129 @@ export const isAllowedHttpsPaykitCallback = (callback: string): boolean => {
 	}
 
 	return true;
+};
+
+const ALLOWED_AUTH_RELAY_HOST = 'httprelay.pubky.app';
+
+/**
+ * Combined-grant `relay=` allowlist (R5). Fail closed: only the first-party
+ * httprelay base used by pubkyauth. Attacker-chosen relay would receive the
+ * AuthToken ciphertext and, knowing `secret` from the QR, could decrypt it
+ * and POST /session. Scheme exactly https; no userinfo, port, trailing-dot,
+ * query, or fragment. Path exactly `/link/` or `/link`.
+ *
+ * Custom-scheme paykit-connect must not carry `relay` at all (R7).
+ */
+export const assertAllowedAuthRelay = (relay: string): boolean => {
+	const trimmed = relay.trim();
+	if (trimmed.includes('#')) {
+		return false;
+	}
+	if (trimmed.includes('?')) {
+		return false;
+	}
+
+	let parsed: URL;
+	try {
+		parsed = new URL(trimmed);
+	} catch {
+		return false;
+	}
+
+	if (parsed.protocol.toLowerCase() !== 'https:') {
+		return false;
+	}
+	if (parsed.username !== '' || parsed.password !== '') {
+		return false;
+	}
+	if (parsed.hash !== '') {
+		return false;
+	}
+	if (parsed.search !== '') {
+		return false;
+	}
+
+	const rawParts = trimmed.match(/^https:\/\/([^/?#]+)([^?#]*)/i);
+	if (!rawParts) {
+		return false;
+	}
+	const rawAuthority = rawParts[1];
+	const rawPath = rawParts[2];
+	if (rawAuthority.includes('@') || rawAuthority.includes(':')) {
+		return false;
+	}
+	if (rawAuthority.endsWith('.')) {
+		return false;
+	}
+	if (parsed.port !== '' && rawAuthority.includes(':')) {
+		return false;
+	}
+
+	const host = parsed.hostname.toLowerCase();
+	const effectiveHost = host || rawAuthority.toLowerCase();
+	if (effectiveHost.endsWith('.') || effectiveHost !== ALLOWED_AUTH_RELAY_HOST) {
+		return false;
+	}
+	if (rawAuthority.toLowerCase() !== effectiveHost) {
+		return false;
+	}
+	if (
+		parsed.pathname !== '/link/' &&
+		parsed.pathname !== '/link' &&
+		parsed.pathname !== '/'
+	) {
+		return false;
+	}
+	if (rawPath !== '/link/' && rawPath !== '/link') {
+		return false;
+	}
+
+	return true;
+};
+
+const PAYKIT_AUTH_SECRET_RE = /^[A-Za-z0-9_-]{43}$/;
+
+const isValidPaykitAuthSecret = (secret: string | undefined): boolean => {
+	if (!secret) {
+		return false;
+	}
+	if (!PAYKIT_AUTH_SECRET_RE.test(secret)) {
+		return false;
+	}
+	try {
+		const padded = secret.replace(/-/g, '+').replace(/_/g, '/');
+		const padLen = (4 - (padded.length % 4)) % 4;
+		const decoded = Buffer.from(padded + '='.repeat(padLen), 'base64');
+		return decoded.length === 32;
+	} catch {
+		return false;
+	}
+};
+
+const buildPubkyAuthUrl = (caps: string[], secret: string, relay: string): string => {
+	const serializedCaps = serializePaykitConnectCaps(caps);
+	const query = [
+		`caps=${encodeURIComponent(serializedCaps)}`,
+		`secret=${encodeURIComponent(secret)}`,
+		`relay=${encodeURIComponent(relay)}`,
+	].join('&');
+	return `pubkyauth:///?${query}`;
+};
+
+const grantedCapsFromAuthResult = (value: string[]): string[] => {
+	if (value.length === 0) {
+		return [];
+	}
+	if (value.length === 1) {
+		const only = value[0];
+		if (only === 'success' || only === 'ok' || only === '') {
+			return [];
+		}
+		if (only.includes(',')) {
+			return only.split(',').map((item) => item.trim()).filter(Boolean);
+		}
+	}
+	return value;
 };
 
 const isAllowedPaykitCallback = (callback: string | undefined): boolean => {
@@ -406,7 +532,9 @@ export const handlePaykitConnectAction = async (
 	context: ActionContext
 ): Promise<Result<string>> => {
 	const { pubky, dispatch } = context;
-	const { deviceId, callback, includeEpoch1 = true, ephemeralPk } = data.params;
+	const { deviceId, callback, includeEpoch1 = true, ephemeralPk, secret, relay } = data.params;
+
+	hideToast();
 
 	// Paykit connect requires a pubky
 	if (!pubky) {
@@ -456,11 +584,22 @@ export const handlePaykitConnectAction = async (
 		}
 	}
 
+	const isHttpsCallback = isAllowedHttpsPaykitCallback(callback);
+	// R7: secret+relay required iff https Hypercolor callback. Custom schemes
+	// (bitkit://, hypercolor://, …) must not carry them — reject, do not ignore.
+	if (isHttpsCallback) {
+		if (!isValidPaykitAuthSecret(secret) || !relay || !assertAllowedAuthRelay(relay)) {
+			return rejectInvalidCallback();
+		}
+	} else if (secret || relay) {
+		return rejectInvalidCallback();
+	}
+
 	const confirmation = await requestPaykitConnectConfirmation({
 		pubky,
 		destination: formatPaykitConnectDestination(
 			callback,
-			isAllowedHttpsPaykitCallback(callback),
+			isHttpsCallback,
 			{
 				webBrowser: i18n.t('session.webBrowser'),
 				appOnDevice: i18n.t('session.appOnThisDevice'),
@@ -469,6 +608,7 @@ export const handlePaykitConnectAction = async (
 		deviceId,
 		capabilities: parsePaykitConnectCaps(data.params.caps),
 		verificationCode: formatRingVerificationCode(derivedChannelId),
+		includesWebSession: isHttpsCallback,
 	});
 	if (confirmation === 'superseded') {
 		return ok('superseded');
@@ -542,6 +682,9 @@ export const handlePaykitConnectAction = async (
 			callback,
 			ed25519SecretKey,
 			ephemeralPk,
+			caps: data.params.caps,
+			secret,
+			relay,
 		});
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -577,6 +720,9 @@ const handleSecureHandoff = async ({
 	callback,
 	ed25519SecretKey,
 	ephemeralPk,
+	caps,
+	secret,
+	relay,
 }: {
 	pubky: string;
 	sessionInfo: { pubky: string; session_secret: string; capabilities: string[] };
@@ -587,6 +733,9 @@ const handleSecureHandoff = async ({
 	callback: string;
 	ed25519SecretKey: string;
 	ephemeralPk: string;
+	caps?: string[];
+	secret?: string;
+	relay?: string;
 }): Promise<Result<string>> => {
 	// Generate random request ID (256 bits)
 	const requestId = await generateRequestId();
@@ -740,7 +889,7 @@ const handleSecureHandoff = async ({
 				throw new Error(`PUT failed: ${putResult.error}`);
 			}
 			// Continue with callback (skip SB2 storage below)
-			return await completeHandoffCallback(pubky, sessionInfo, requestId, keypair0, deviceId, nowSeconds, callback, ed25519SecretKey);
+			return await completeHandoffCallback(pubky, sessionInfo, requestId, keypair0, deviceId, nowSeconds, callback, ed25519SecretKey, caps, secret, relay);
 		} catch (fallbackError) {
 			const fallbackMsg = fallbackError instanceof Error ? fallbackError.message : 'Fallback failed';
 			showToast({
@@ -849,7 +998,7 @@ const handleSecureHandoff = async ({
 		);
 	}
 
-	return await completeHandoffCallback(pubky, sessionInfo, requestId, keypair0, deviceId, nowSeconds, callback, ed25519SecretKey);
+	return await completeHandoffCallback(pubky, sessionInfo, requestId, keypair0, deviceId, nowSeconds, callback, ed25519SecretKey, caps, secret, relay);
 };
 
 /**
@@ -888,10 +1037,29 @@ const rejectRelayPostFailed = (chPrefix: string, status: string | number): Resul
 	return err('Relay post failed');
 };
 
+const rejectAuthPostFailed = (): Result<string> => {
+	showToast({
+		type: 'error',
+		title: i18n.t('common.error'),
+		description: i18n.t('session.paykitConnectAuthFailed'),
+	});
+	return err(i18n.t('session.paykitConnectAuthFailed'));
+};
+
+const rejectCapsMismatch = (): Result<string> => {
+	showToast({
+		type: 'error',
+		title: i18n.t('common.error'),
+		description: i18n.t('session.paykitConnectCapsMismatch'),
+	});
+	return err(i18n.t('session.paykitConnectCapsMismatch'));
+};
+
 /**
  * POST the public locator to httprelay. Body field names match
  * Hypercolor publishHandoffParamsToRelay / validateHandoffPublicParams:
- * pubky, request_id, mode:"secure_handoff", homeserver. No secrets.
+ * pubky, request_id, mode, homeserver. No secrets.
+ * Combined https grant uses mode "secure_handoff+pubkyauth" (R6/design).
  * Linking.openURL is never called on this path — not even as fallback.
  */
 const publishHttpsHandoffToRelay = async ({
@@ -899,11 +1067,13 @@ const publishHttpsHandoffToRelay = async ({
 	requestId,
 	homeserver,
 	callback,
+	mode,
 }: {
 	pubky: string;
 	requestId: string;
 	homeserver: string;
 	callback: string;
+	mode: 'secure_handoff' | 'secure_handoff+pubkyauth';
 }): Promise<Result<string>> => {
 	const ch = extractRelayChannelId(callback);
 	if (ch === null) {
@@ -915,7 +1085,7 @@ const publishHttpsHandoffToRelay = async ({
 	const body = JSON.stringify({
 		pubky,
 		request_id: requestId,
-		mode: 'secure_handoff',
+		mode,
 		homeserver,
 	});
 
@@ -927,6 +1097,7 @@ const publishHttpsHandoffToRelay = async ({
 			headers: { 'content-type': 'application/json' },
 			body,
 			signal: controller.signal,
+			redirect: 'error',
 		});
 		if (response.status < 200 || response.status >= 300) {
 			return rejectRelayPostFailed(chPrefix, response.status);
@@ -945,9 +1116,61 @@ const publishHttpsHandoffToRelay = async ({
 	}
 };
 
+const postPubkyAuthThenLocator = async ({
+	pubky,
+	requestId,
+	homeserver,
+	callback,
+	ed25519SecretKey,
+	caps,
+	secret,
+	relay,
+}: {
+	pubky: string;
+	requestId: string;
+	homeserver: string;
+	callback: string;
+	ed25519SecretKey: string;
+	caps: string[] | undefined;
+	secret: string;
+	relay: string;
+}): Promise<Result<string>> => {
+	if (!assertAllowedAuthRelay(relay) || !isValidPaykitAuthSecret(secret)) {
+		return rejectInvalidCallback();
+	}
+
+	const qrCaps = (caps ?? []).slice();
+	const authUrl = buildPubkyAuthUrl(qrCaps, secret, relay);
+	const authRes = await signAndPostAuthToken({
+		authUrl,
+		secretKey: ed25519SecretKey,
+	});
+	if (authRes.isErr()) {
+		return rejectAuthPostFailed();
+	}
+
+	const granted = grantedCapsFromAuthResult(authRes.value);
+	const urlCaps = serializePaykitConnectCaps(qrCaps).split(',').filter(Boolean);
+	if (!paykitConnectCapSetsEqual(urlCaps, qrCaps)) {
+		return rejectCapsMismatch();
+	}
+	if (granted.length > 0 && !paykitConnectCapSetsEqual(granted, qrCaps)) {
+		return rejectCapsMismatch();
+	}
+
+	return await publishHttpsHandoffToRelay({
+		pubky,
+		requestId,
+		homeserver,
+		callback,
+		mode: 'secure_handoff+pubkyauth',
+	});
+};
+
 /**
- * Complete the handoff: https → relay POST (never open a browser);
- * custom scheme → Linking.openURL (same-device).
+ * Complete the handoff: https → auth POST then locator POST (never open a browser);
+ * custom scheme → Linking.openURL (same-device). Combined secret/relay are
+ * https-only (R7).
  */
 const completeHandoffCallback = async (
 	pubky: string,
@@ -957,7 +1180,10 @@ const completeHandoffCallback = async (
 	deviceId: string,
 	nowSeconds: number,
 	callback: string,
-	_ed25519SecretKey: string,
+	ed25519SecretKey: string,
+	caps: string[] | undefined,
+	secret: string | undefined,
+	relay: string | undefined,
 ): Promise<Result<string>> => {
 	if (!isAllowedPaykitCallback(callback)) {
 		return rejectInvalidCallback();
@@ -969,11 +1195,18 @@ const completeHandoffCallback = async (
 	// Web QR: Ring cannot tell which device served the page. Post the
 	// locator to the channel the page is already polling. Never openURL.
 	if (isAllowedHttpsPaykitCallback(callback)) {
-		return await publishHttpsHandoffToRelay({
+		if (!secret || !relay) {
+			return rejectInvalidCallback();
+		}
+		return await postPubkyAuthThenLocator({
 			pubky: sessionInfo.pubky,
 			requestId,
 			homeserver: homeserverPubkey,
 			callback,
+			ed25519SecretKey,
+			caps,
+			secret,
+			relay,
 		});
 	}
 

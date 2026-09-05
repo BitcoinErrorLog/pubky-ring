@@ -21,14 +21,11 @@ import {
 import { SheetManager } from 'react-native-actions-sheet';
 import { useSelector } from 'react-redux';
 import {
-	getToastStyle,
 	isSmallScreen,
 	showToast,
 } from '../utils/helpers.ts';
 import PubkyCard from './PubkyCard.tsx';
 import { getNavigationAnimation } from '../store/selectors/settingsSelectors.ts';
-import Toast from 'react-native-toast-message';
-import { toastConfig } from '../theme/toastConfig.tsx';
 import ModalIndicator from './ModalIndicator.tsx';
 import {
 	ACTION_SHEET_HEIGHT,
@@ -41,10 +38,9 @@ import { useTranslation } from 'react-i18next';
 import { shouldAuthorizeRequest } from '../utils/authRequestGeneration';
 import { copyToClipboard } from '../utils/clipboard';
 import { PaykitConnectConfirmPayload } from '../utils/confirmPaykitConnect';
-import { PaykitConnectCapability } from '../utils/paykitConnectCaps';
+import { PaykitConnectCapability, annotatePaykitConnectCap } from '../utils/paykitConnectCaps';
 import { DEVICE_ID_DISPLAY_MAX, sanitizeDisplayString } from '../utils/sanitizeDisplayString';
 
-const toastStyle = getToastStyle();
 const smallScreen = isSmallScreen();
 const actionSheetHeight = smallScreen ? SMALL_SCREEN_ACTION_SHEET_HEIGHT : ACTION_SHEET_HEIGHT;
 
@@ -80,7 +76,12 @@ const Permission = memo(({
 		<View style={styles.permissionRow}>
 			<Folder size={13} />
 			<View style={styles.pathContainer}>
-				<Text style={styles.pathText}>{sanitizeDisplayString(capability.path)}</Text>
+				<Text style={styles.pathText}>
+					{sanitizeDisplayString(capability.path)}
+					{annotatePaykitConnectCap(capability.path)
+				? ` (${annotatePaykitConnectCap(capability.path)})`
+				: ''}
+				</Text>
 			</View>
 			<View style={styles.permissionsContainer}>
 				{hasReadPermission && (
@@ -111,6 +112,7 @@ const ConfirmPaykitConnect = ({
 		verificationCode,
 		requestGeneration,
 		onDecision,
+		includesWebSession,
 	} = payload;
 	const pubkyName = useSelector((state: RootState) => getPubkyName(state, pubky));
 
@@ -147,7 +149,9 @@ const ConfirmPaykitConnect = ({
 				<ModalIndicator />
 				<View style={styles.mainContent}>
 					<View style={styles.titleContainer}>
-						<Text style={styles.title}>{t('session.paykitConnectTitle')}</Text>
+						<Text style={styles.title}>
+							{t(includesWebSession ? 'session.paykitConnectWebTitle' : 'session.paykitConnectTitle')}
+						</Text>
 					</View>
 
 					<Pressable
@@ -201,7 +205,9 @@ const ConfirmPaykitConnect = ({
 					</View>
 
 					<SessionText style={styles.warningText} testID="ConfirmPaykitConnectWarning">
-						{t('session.paykitConnectWarning')}
+						{t(includesWebSession
+							? 'session.paykitConnectSessionLine'
+							: 'session.paykitConnectWarning')}
 					</SessionText>
 				</View>
 
@@ -230,7 +236,6 @@ const ConfirmPaykitConnect = ({
 					</View>
 				</View>
 			</SkiaGradient>
-			<Toast config={toastConfig({ style: toastStyle })} />
 		</ActionSheetContainer>
 	);
 };

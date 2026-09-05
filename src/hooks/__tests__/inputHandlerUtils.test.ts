@@ -269,4 +269,12 @@ describe('routeInputWithContext paykit toast suppression', () => {
 			autoHide: false,
 		}));
 	});
+
+	it('does not show a second toast when combined auth already toasted', async () => {
+		(routeInput as jest.Mock).mockResolvedValue(err('session.paykitConnectAuthFailed'));
+
+		await routeInputWithContext(parsedPaykit, 'pk:one', 'scan', jest.fn());
+
+		expect(showToast).not.toHaveBeenCalled();
+	});
 });

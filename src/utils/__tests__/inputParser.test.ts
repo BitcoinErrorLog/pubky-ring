@@ -298,6 +298,34 @@ describe('inputParser', () => {
 			}
 		});
 
+		it('parses optional secret and relay on paykit-connect', async () => {
+			const secret = 'ERERERERERERERERERERERERERERERERERERERERERE';
+			const relay = 'https://httprelay.pubky.app/link/';
+			const url =
+				`pubkyring://paykit-connect?deviceId=d1&callback=https%3A%2F%2Fhypercolor.app%2Fring-callback%3Fch%3Dabc` +
+				`&ephemeralPk=${HYPERCOLOR_EPHEMERAL_PK}&secret=${secret}&relay=${encodeURIComponent(relay)}`;
+
+			const result = await parseInput(url, 'scan');
+
+			expect(isPaykitConnectAction(result.data)).toBe(true);
+			if (isPaykitConnectAction(result.data)) {
+				expect(result.data.params.secret).toBe(secret);
+				expect(result.data.params.relay).toBe(relay);
+			}
+		});
+
+		it('omits secret and relay when they are absent (Bitkit custom scheme)', async () => {
+			const url = 'pubkyring://paykit-connect?deviceId=device123&callback=bitkit://paykit-setup';
+
+			const result = await parseInput(url, 'deeplink');
+
+			expect(isPaykitConnectAction(result.data)).toBe(true);
+			if (isPaykitConnectAction(result.data)) {
+				expect(result.data.params.secret).toBeUndefined();
+				expect(result.data.params.relay).toBeUndefined();
+			}
+		});
+
 		it('keeps Hypercolor https callback ch= after whole-string pre-decode', async () => {
 			const result = await parseInput(HYPERCOLOR_WEB_LOGIN_QR, 'scan');
 

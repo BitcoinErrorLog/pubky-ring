@@ -82,6 +82,11 @@ export interface PaykitConnectParams {
 	// Decision: surface the QR `caps` on the confirmation sheet. Not used
 	// for the homeserver session itself (that comes from sign-in).
 	caps?: string[];
+	// Combined https web grant (R7): optional at parse time. Required only
+	// when the callback is an allowed https Hypercolor callback. Custom-scheme
+	// Bitkit/Hypercolor-mobile QRs must not carry these — the action rejects.
+	secret?: string;
+	relay?: string;
 }
 
 // Sign message parameters
@@ -270,6 +275,8 @@ const parsePaykitConnectParams = (queryString: string): PaykitConnectParams | nu
 		const ephemeralPk = params.get('ephemeralPk') || undefined;
 		const capsRaw = params.get('caps') || '';
 		const caps = capsRaw.split(',').filter(Boolean);
+		const secretRaw = params.get('secret') || '';
+		const relayRaw = params.get('relay') || '';
 		// Third decode: pre-decode loop + parseQueryPairs already decoded.
 		// Kept for parity when the whole-string loop stops early (malformed `%`
 		// in a sibling param) and callback is still percent-encoded. Hypercolor
@@ -280,6 +287,8 @@ const parsePaykitConnectParams = (queryString: string): PaykitConnectParams | nu
 			includeEpoch1,
 			ephemeralPk,
 			caps,
+			secret: secretRaw ? secretRaw : undefined,
+			relay: relayRaw ? decodeURIComponent(relayRaw) : undefined,
 		};
 	} catch {
 		return null;

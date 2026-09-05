@@ -606,6 +606,40 @@ export const truncatePubky = (pubky: string): string => {
 
 const TIMEOUT_MS = 20000;
 
+/**
+ * Sign an AuthToken for `pubkyauth://` and POST ciphertext to the auth
+ * channel. Used by combined paykit-connect (no ConfirmAuth sheet).
+ * Returns the native `auth()` payload so callers can assert granted caps.
+ */
+export const signAndPostAuthToken = async ({
+	authUrl,
+	secretKey,
+}: {
+	authUrl: string;
+	secretKey: string;
+}): Promise<Result<string[]>> => {
+	try {
+		const authRes = await auth(authUrl, secretKey);
+		if (authRes.isErr()) {
+			const sanitized = sanitizeAuthError(authRes.error, 'process');
+			logAuthError(sanitized.code);
+			return err(sanitized.message);
+		}
+		const value = authRes.value;
+		if (Array.isArray(value)) {
+			return ok(value);
+		}
+		if (typeof value === 'string') {
+			return ok(value.split(',').map((item) => item.trim()).filter(Boolean));
+		}
+		return ok([]);
+	} catch (error: unknown) {
+		const sanitized = sanitizeAuthError(error, 'failed');
+		logAuthError(sanitized.code);
+		return err(sanitized.message);
+	}
+};
+
 export const performAuth = async ({
 	pubky,
 	authUrl,

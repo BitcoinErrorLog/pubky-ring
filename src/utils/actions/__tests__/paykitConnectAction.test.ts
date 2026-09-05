@@ -26,8 +26,11 @@ const HYPERCOLOR_RELAY_URL =
 	'https://httprelay.pubky.app/link/hc-8eOwP5zDIW4PwXitMsHu3RdUDCF60o3DTwI-firPVT8';
 const HYPERCOLOR_EPHEMERAL_PK =
 	'c9aaad5b10794814e6ca4a5a18ea2aebb0467c83fd45515ab1634910e6a0b172';
+const HYPERCOLOR_AUTH_SECRET = 'ERERERERERERERERERERERERERERERERERERERERERE';
+const HYPERCOLOR_AUTH_RELAY = 'https://httprelay.pubky.app/link/';
+const HYPERCOLOR_GRANT_CAPS = ['/pub/paykit/:rw', '/pub/hypercolor.app/v1/:rw'];
 const HYPERCOLOR_WEB_LOGIN_QR =
-	'pubkyring://paykit-connect?deviceId=hypercolor-web-1a070b03cdc&callback=https%3A%2F%2Fhypercolor.app%2Fring-callback%3Fch%3D8eOwP5zDIW4PwXitMsHu3RdUDCF60o3DTwI-firPVT8&ephemeralPk=c9aaad5b10794814e6ca4a5a18ea2aebb0467c83fd45515ab1634910e6a0b172&caps=%2Fpub%2Fpaykit%2F%3Arw%2C%2Fpub%2Fhypercolor.app%2Fv1%2F%3Arw';
+	'pubkyring://paykit-connect?deviceId=hypercolor-web-1a070b03cdc&callback=https%3A%2F%2Fhypercolor.app%2Fring-callback%3Fch%3D8eOwP5zDIW4PwXitMsHu3RdUDCF60o3DTwI-firPVT8&ephemeralPk=c9aaad5b10794814e6ca4a5a18ea2aebb0467c83fd45515ab1634910e6a0b172&caps=%2Fpub%2Fpaykit%2F%3Arw%2C%2Fpub%2Fhypercolor.app%2Fv1%2F%3Arw&secret=ERERERERERERERERERERERERERERERERERERERERERE&relay=https%3A%2F%2Fhttprelay.pubky.app%2Flink%2F';
 
 const mockFetch = jest.fn();
 const originalFetch = global.fetch;
@@ -50,6 +53,21 @@ jest.mock('react-native', () => {
 
 jest.mock('@synonymdev/react-native-pubky', () => ({
 	put: jest.fn(),
+	parseAuthUrl: jest.fn().mockResolvedValue({
+		isOk: () => false,
+		isErr: () => true,
+		error: { message: 'Not an auth URL' },
+	}),
+	mnemonicPhraseToKeypair: jest.fn().mockResolvedValue({
+		isOk: () => false,
+		isErr: () => true,
+		error: { message: 'Invalid mnemonic' },
+	}),
+	getPublicKeyFromSecretKey: jest.fn().mockResolvedValue({
+		isOk: () => false,
+		isErr: () => true,
+		error: { message: 'Invalid secret key' },
+	}),
 }));
 
 // Get the mocked native put for test assertions
@@ -59,6 +77,7 @@ const mockNativePut = NativeModules.Pubky.put as jest.Mock;
 jest.mock('../../pubky', () => ({
 	signInToHomeserver: jest.fn(),
 	getPubkySecretKey: jest.fn(),
+	signAndPostAuthToken: jest.fn(),
 }));
 
 jest.mock('../../PubkyNoiseModule', () => ({
@@ -88,6 +107,7 @@ jest.mock('../../constants', () => ({
 
 jest.mock('../../helpers', () => ({
 	showToast: jest.fn(),
+	hideToast: jest.fn(),
 	sleep: jest.fn(() => Promise.resolve()),
 }));
 
@@ -102,7 +122,7 @@ jest.mock('../../../i18n', () => ({
 
 import { Linking } from 'react-native';
 import { put } from '@synonymdev/react-native-pubky';
-import { signInToHomeserver, getPubkySecretKey } from '../../pubky';
+import { signInToHomeserver, getPubkySecretKey, signAndPostAuthToken } from '../../pubky';
 import {
 	deriveX25519ForDeviceEpoch,
 	deriveNoiseSeed,
@@ -163,6 +183,15 @@ describe('paykitConnectAction', () => {
 		},
 	});
 
+	const createHttpsActionData = (params: Partial<PaykitConnectParams> = {}): PaykitConnectActionData =>
+		createActionData({
+			callback: mockHttpsCallback,
+			secret: HYPERCOLOR_AUTH_SECRET,
+			relay: HYPERCOLOR_AUTH_RELAY,
+			caps: HYPERCOLOR_GRANT_CAPS,
+			...params,
+		});
+
 	const autoApproveSheet = (): void => {
 		(SheetManager.show as jest.Mock).mockImplementation((_id, options) => {
 			options?.payload?.onDecision?.(true);
@@ -189,6 +218,9 @@ describe('paykitConnectAction', () => {
 		);
 		(getPubkySecretKey as jest.Mock).mockResolvedValue(
 			createOkResult({ secretKey: mockSecretKey, mnemonic: 'test mnemonic' })
+		);
+		(signAndPostAuthToken as jest.Mock).mockResolvedValue(
+			createOkResult(HYPERCOLOR_GRANT_CAPS)
 		);
 		(deriveX25519ForDeviceEpoch as jest.Mock).mockResolvedValue({
 			publicKey: 'c'.repeat(64),
@@ -326,7 +358,7 @@ describe('paykitConnectAction', () => {
 			`https://www.hypercolor.app/ring-callback?ch=${mockMatchingCh}`,
 			`HTTPS://hypercolor.app/ring-callback?ch=${mockMatchingCh}`,
 		])('should accept first-party https callback %s without opening a browser', async (callback) => {
-			const data = createActionData({ callback });
+			const data = createHttpsActionData({ callback });
 
 			await handlePaykitConnectAction(data, mockContext);
 
@@ -345,7 +377,7 @@ describe('paykitConnectAction', () => {
 			expect(isAllowedHttpsPaykitCallback(callback)).toBe(true);
 
 			const result = await handlePaykitConnectAction(
-				createActionData({ callback }),
+				createHttpsActionData({ callback }),
 				mockContext
 			);
 
@@ -690,7 +722,7 @@ describe('paykitConnectAction', () => {
 		const expectedRelayBody = {
 			pubky: 'test-pubky-z32',
 			request_id: 'i'.repeat(64),
-			mode: 'secure_handoff',
+		mode: 'secure_handoff+pubkyauth',
 			homeserver: DEFAULT_HOMESERVER,
 		};
 
@@ -698,7 +730,7 @@ describe('paykitConnectAction', () => {
 			expect(isAllowedHttpsPaykitCallback(HYPERCOLOR_WEB_CALLBACK)).toBe(true);
 
 			const result = await handlePaykitConnectAction(
-				createActionData({
+				createHttpsActionData({
 					callback: HYPERCOLOR_WEB_CALLBACK,
 					ephemeralPk: HYPERCOLOR_EPHEMERAL_PK,
 				}),
@@ -734,7 +766,7 @@ describe('paykitConnectAction', () => {
 			}
 
 			const result = await handlePaykitConnectAction(
-				createActionData({
+				createHttpsActionData({
 					callback: HYPERCOLOR_WEB_CALLBACK,
 					ephemeralPk: HYPERCOLOR_EPHEMERAL_PK,
 				}),
@@ -806,7 +838,7 @@ describe('paykitConnectAction', () => {
 		it('passes host, deviceId, caps, and verification code for https', async () => {
 			const caps = ['/pub/paykit/:rw', '/pub/hypercolor.app/v1/:rw'];
 			await handlePaykitConnectAction(
-				createActionData({
+				createHttpsActionData({
 					callback: mockHttpsCallback,
 					deviceId: 'hypercolor-web-1a070b03cdc',
 					caps,
@@ -910,9 +942,98 @@ describe('paykitConnectAction', () => {
 			const result = await handlePaykitConnectAction(parsed.data, mockContext);
 
 			expect(result.isOk()).toBe(true);
+			expect(signAndPostAuthToken).toHaveBeenCalled();
 			expect(mockFetch).toHaveBeenCalledTimes(1);
 			expect(mockFetch.mock.calls[0][0]).toBe(HYPERCOLOR_RELAY_URL);
 			expect(Linking.openURL).not.toHaveBeenCalled();
+		});
+
+		it('rejects https callback when secret or relay is missing', async () => {
+			const result = await handlePaykitConnectAction(
+				createActionData({
+					callback: mockHttpsCallback,
+					caps: HYPERCOLOR_GRANT_CAPS,
+				}),
+				mockContext
+			);
+
+			expect(result.isErr()).toBe(true);
+			expect(SheetManager.show).not.toHaveBeenCalled();
+			expect(signAndPostAuthToken).not.toHaveBeenCalled();
+			expect(mockFetch).not.toHaveBeenCalled();
+		});
+
+		it('rejects custom-scheme callbacks that carry secret or relay', async () => {
+			const result = await handlePaykitConnectAction(
+				createActionData({
+					secret: HYPERCOLOR_AUTH_SECRET,
+					relay: HYPERCOLOR_AUTH_RELAY,
+				}),
+				mockContext
+			);
+
+			expect(result.isErr()).toBe(true);
+			expect(SheetManager.show).not.toHaveBeenCalled();
+			expect(signAndPostAuthToken).not.toHaveBeenCalled();
+			expect(mockFetch).not.toHaveBeenCalled();
+			expect(Linking.openURL).not.toHaveBeenCalled();
+		});
+
+		it('does not POST locator when auth POST fails', async () => {
+			(signAndPostAuthToken as jest.Mock).mockResolvedValue(
+				createErrResult('auth failed')
+			);
+
+			const result = await handlePaykitConnectAction(
+				createHttpsActionData(),
+				mockContext
+			);
+
+			expect(result.isErr()).toBe(true);
+			expect(signAndPostAuthToken).toHaveBeenCalled();
+			expect(mockFetch).not.toHaveBeenCalled();
+			expect(showToast).toHaveBeenCalledWith(
+				expect.objectContaining({
+					description: 'session.paykitConnectAuthFailed',
+				})
+			);
+		});
+
+		it('does not POST locator when granted caps mismatch the QR set', async () => {
+			(signAndPostAuthToken as jest.Mock).mockResolvedValue(
+				createOkResult(['/pub/paykit/:rw'])
+			);
+
+			const result = await handlePaykitConnectAction(
+				createHttpsActionData(),
+				mockContext
+			);
+
+			expect(result.isErr()).toBe(true);
+			expect(mockFetch).not.toHaveBeenCalled();
+			expect(showToast).toHaveBeenCalledWith(
+				expect.objectContaining({
+					description: 'session.paykitConnectCapsMismatch',
+				})
+			);
+		});
+
+		it('E2E auto-approve still posts auth before locator', async () => {
+			(isE2EAutoApproveEnabled as jest.Mock).mockReturnValue(true);
+			const order: string[] = [];
+			(signAndPostAuthToken as jest.Mock).mockImplementation(async () => {
+				order.push('auth');
+				return createOkResult(HYPERCOLOR_GRANT_CAPS);
+			});
+			mockFetch.mockImplementation(async () => {
+				order.push('locator');
+				return { ok: true, status: 200 };
+			});
+
+			await handlePaykitConnectAction(createHttpsActionData(), mockContext);
+
+			expect(SheetManager.show).not.toHaveBeenCalled();
+			expect(order).toEqual(['auth', 'locator']);
 		});
 	});
 });
