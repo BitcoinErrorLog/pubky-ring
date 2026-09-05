@@ -43,7 +43,7 @@ import { signInToHomeserver, getPubkySecretKey } from '../pubky';
 import { showToast } from '../helpers';
 import { getErrorMessage } from '../errorHandler';
 import { getPubkyDataFromStore } from '../store-helpers';
-import { DEFAULT_HOMESERVER, PRODUCTION_HOMESERVER } from '../constants';
+import { DEFAULT_HOMESERVER } from '../constants';
 import i18n from '../../i18n';
 import {
 	deriveX25519ForDeviceEpoch as nativeDeriveX25519,
@@ -60,10 +60,21 @@ import {
 } from '../PubkyNoiseModule';
 
 /**
- * Custom-scheme callbacks Ring is allowed to open after paykit-connect.
- * Must stay aligned with AndroidManifest.xml <queries> entries. `https` is
- * intentionally excluded: an attacker QR could otherwise redirect the
- * handoff locator (pubky + request_id + homeserver) to an attacker URL.
+ * Callbacks Ring is allowed to open after paykit-connect.
+ *
+ * Custom schemes must stay aligned with AndroidManifest.xml <queries>.
+ * Arbitrary `https` is still rejected: an attacker QR could otherwise
+ * redirect the handoff locator (pubky + request_id + homeserver) to an
+ * attacker URL.
+ *
+ * The only https exception is an exact-match allowlist of first-party
+ * Hypercolor web endpoints (origin + pathname). Host is matched
+ * case-insensitively with no port, userinfo, or trailing-dot tricks;
+ * pathname must be exactly `/ring-callback` (no slash variants, `..`,
+ * or encodings); fragments are rejected. Query is allowed (`ch`) and
+ * cannot change origin or path. Exact-match origin+path keeps the
+ * redirect concern closed because the locator can only land on those
+ * first-party pages.
  */
 const ALLOWED_PAYKIT_CALLBACK_SCHEMES = new Set([
 	'bitkit',
@@ -71,6 +82,12 @@ const ALLOWED_PAYKIT_CALLBACK_SCHEMES = new Set([
 	'atomicity',
 	'hypercolor',
 ]);
+
+const ALLOWED_HTTPS_CALLBACK_HOSTS = new Set([
+	'hypercolor.app',
+	'www.hypercolor.app',
+]);
+const ALLOWED_HTTPS_CALLBACK_PATHNAME = '/ring-callback';
 
 const CALLBACK_SCHEME_RE = /^([a-z][a-z0-9+.-]*):\/\//i;
 
@@ -82,12 +99,82 @@ const parseCallbackScheme = (callback: string): string | null => {
 	return match[1].toLowerCase();
 };
 
+/**
+ * First-party https callbacks only. Uses the platform URL parser, then
+ * re-checks the raw authority and path so normalization cannot hide
+ * port, userinfo, trailing-dot, `..`, or encoded-slash tricks.
+ */
+const isAllowedHttpsPaykitCallback = (callback: string): boolean => {
+	const trimmed = callback.trim();
+	if (trimmed.includes('#')) {
+		return false;
+	}
+
+	let parsed: URL;
+	try {
+		parsed = new URL(trimmed);
+	} catch {
+		return false;
+	}
+
+	if (parsed.protocol !== 'https:') {
+		return false;
+	}
+	if (parsed.username !== '' || parsed.password !== '') {
+		return false;
+	}
+	if (parsed.port !== '') {
+		return false;
+	}
+	if (parsed.hash !== '') {
+		return false;
+	}
+
+	const host = parsed.hostname.toLowerCase();
+	if (host.endsWith('.') || !ALLOWED_HTTPS_CALLBACK_HOSTS.has(host)) {
+		return false;
+	}
+	if (parsed.pathname !== ALLOWED_HTTPS_CALLBACK_PATHNAME) {
+		return false;
+	}
+
+	const rawParts = trimmed.match(/^https:\/\/([^/?#]+)([^?#]*)/i);
+	if (!rawParts) {
+		return false;
+	}
+	const rawAuthority = rawParts[1];
+	const rawPath = rawParts[2];
+	if (rawAuthority.includes('@') || rawAuthority.includes(':')) {
+		return false;
+	}
+	if (rawAuthority.endsWith('.')) {
+		return false;
+	}
+	if (rawAuthority.toLowerCase() !== host) {
+		return false;
+	}
+	if (rawPath !== ALLOWED_HTTPS_CALLBACK_PATHNAME) {
+		return false;
+	}
+
+	return true;
+};
+
 const isAllowedPaykitCallback = (callback: string | undefined): boolean => {
 	if (!callback) {
 		return false;
 	}
 	const scheme = parseCallbackScheme(callback);
-	return scheme !== null && ALLOWED_PAYKIT_CALLBACK_SCHEMES.has(scheme);
+	if (scheme === null) {
+		return false;
+	}
+	if (ALLOWED_PAYKIT_CALLBACK_SCHEMES.has(scheme)) {
+		return true;
+	}
+	if (scheme === 'https') {
+		return isAllowedHttpsPaykitCallback(callback);
+	}
+	return false;
 };
 
 const rejectInvalidCallback = (): Result<string> => {
@@ -691,7 +778,7 @@ const completeHandoffCallback = async (
 	deviceId: string,
 	nowSeconds: number,
 	callback: string,
-	ed25519SecretKey: string,
+	_ed25519SecretKey: string,
 ): Promise<Result<string>> => {
 	if (!isAllowedPaykitCallback(callback)) {
 		return rejectInvalidCallback();

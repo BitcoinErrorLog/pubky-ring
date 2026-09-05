@@ -267,6 +267,54 @@ describe('paykitConnectAction', () => {
 			}
 		);
 
+		it.each([
+			'https://hypercolor.app/ring-callback?ch=abc',
+			'https://www.hypercolor.app/ring-callback?ch=abc',
+			'HTTPS://hypercolor.app/ring-callback?ch=abc',
+		])('should accept first-party https callback %s', async (callback) => {
+			const data = createActionData({ callback });
+
+			await handlePaykitConnectAction(data, mockContext);
+
+			expect(signInToHomeserver).toHaveBeenCalled();
+			expect(showToast).not.toHaveBeenCalledWith(
+				expect.objectContaining({
+					description: 'session.invalidCallback',
+				})
+			);
+		});
+
+		it.each([
+			'http://hypercolor.app/ring-callback',
+			'https://hypercolor.app.evil.com/ring-callback',
+			'https://evil.com/ring-callback',
+			'https://hypercolor.app:8443/ring-callback',
+			'https://user@hypercolor.app/ring-callback',
+			'https://hypercolor.app/ring-callback/../x',
+			'https://hypercolor.app/ring-callback#frag',
+			'https://hypercolor.app/RING-CALLBACK',
+			'https://hypercolor.app/ring-callback%2F..',
+			'https://hypercolor.app:443/ring-callback',
+			'https://hypercolor.app/ring-callback/../ring-callback',
+			'https://hypercolor.app./ring-callback',
+			'https://hypercolor.app/ring-callback/',
+			'HTTPS://evil.com/ring-callback',
+			'https://xn--hyprcolor-n7a.app/ring-callback',
+		])('should reject https callback %s', async (callback) => {
+			const data = createActionData({ callback });
+
+			const result = await handlePaykitConnectAction(data, mockContext);
+
+			expect(result.isErr()).toBe(true);
+			expect(signInToHomeserver).not.toHaveBeenCalled();
+			expect(showToast).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: 'error',
+					description: 'session.invalidCallback',
+				})
+			);
+		});
+
 		it('should reject when ephemeralPk is missing', async () => {
 			const data = createActionData({ ephemeralPk: undefined });
 
