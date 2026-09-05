@@ -18,7 +18,17 @@ import {
 	isSignMessageAction,
 	isUnknownAction,
 } from '../inputParser';
+import { isAllowedHttpsPaykitCallback } from '../actions/paykitConnectAction';
 import { EBackupPreference } from '../../types/pubky';
+
+const HYPERCOLOR_WEB_LOGIN_QR =
+	'pubkyring://paykit-connect?deviceId=hypercolor-web-1a070b03cdc&callback=https%3A%2F%2Fhypercolor.app%2Fring-callback%3Fch%3D8eOwP5zDIW4PwXitMsHu3RdUDCF60o3DTwI-firPVT8&ephemeralPk=c9aaad5b10794814e6ca4a5a18ea2aebb0467c83fd45515ab1634910e6a0b172&caps=%2Fpub%2Fpaykit%2F%3Arw%2C%2Fpub%2Fhypercolor.app%2Fv1%2F%3Arw';
+
+const HYPERCOLOR_CALLBACK =
+	'https://hypercolor.app/ring-callback?ch=8eOwP5zDIW4PwXitMsHu3RdUDCF60o3DTwI-firPVT8';
+
+const HYPERCOLOR_EPHEMERAL_PK =
+	'c9aaad5b10794814e6ca4a5a18ea2aebb0467c83fd45515ab1634910e6a0b172';
 
 // Mock the pubky SDK
 jest.mock('@synonymdev/react-native-pubky', () => ({
@@ -285,6 +295,62 @@ describe('inputParser', () => {
 
 			if (isPaykitConnectAction(result.data)) {
 				expect(result.data.params.includeEpoch1).toBe(false);
+			}
+		});
+
+		it('keeps Hypercolor https callback ch= after whole-string pre-decode', async () => {
+			const result = await parseInput(HYPERCOLOR_WEB_LOGIN_QR, 'scan');
+
+			expect(result.action).toBe(InputAction.PaykitConnect);
+			expect(isPaykitConnectAction(result.data)).toBe(true);
+			if (isPaykitConnectAction(result.data)) {
+				expect(result.data.params.callback).toBe(HYPERCOLOR_CALLBACK);
+				expect(result.data.params.deviceId).toBe('hypercolor-web-1a070b03cdc');
+				expect(result.data.params.ephemeralPk).toBe(HYPERCOLOR_EPHEMERAL_PK);
+				expect(isAllowedHttpsPaykitCallback(result.data.params.callback)).toBe(true);
+			}
+		});
+
+		it('keeps = inside a hypercolor:// mobile callback', async () => {
+			const url =
+				'pubkyring://paykit-connect?deviceId=d1&callback=hypercolor%3A%2F%2Fpaykit-connect-callback%3Ffoo%3Dbar&ephemeralPk=' +
+				HYPERCOLOR_EPHEMERAL_PK;
+
+			const result = await parseInput(url, 'scan');
+
+			expect(isPaykitConnectAction(result.data)).toBe(true);
+			if (isPaykitConnectAction(result.data)) {
+				expect(result.data.params.callback).toBe(
+					'hypercolor://paykit-connect-callback?foo=bar'
+				);
+			}
+		});
+
+		it('returns unknown when paykit-connect callback is missing', async () => {
+			const url = `pubkyring://paykit-connect?deviceId=d1&ephemeralPk=${HYPERCOLOR_EPHEMERAL_PK}`;
+
+			const result = await parseInput(url, 'scan');
+
+			expect(result.action).toBe(InputAction.Unknown);
+		});
+
+		it('does not let an encoded &ephemeralPk=evil inside callback override the outer key', async () => {
+			// ephemeralPk is placed before callback so first-occurrence wins after
+			// the pre-decode turns `%26ephemeralPk%3Devil` into a sibling pair.
+			// That later pair is ignored. Safe because first-wins keeps the
+			// earlier legitimate key; an injected pair cannot override it.
+			const url =
+				`pubkyring://paykit-connect?deviceId=d1&ephemeralPk=${HYPERCOLOR_EPHEMERAL_PK}` +
+				'&callback=hypercolor%3A%2F%2Fpaykit-connect-callback%3Ffoo%3Dbar%26ephemeralPk%3Devil';
+
+			const result = await parseInput(url, 'scan');
+
+			expect(isPaykitConnectAction(result.data)).toBe(true);
+			if (isPaykitConnectAction(result.data)) {
+				expect(result.data.params.ephemeralPk).toBe(HYPERCOLOR_EPHEMERAL_PK);
+				expect(result.data.params.callback).toBe(
+					'hypercolor://paykit-connect-callback?foo=bar'
+				);
 			}
 		});
 	});

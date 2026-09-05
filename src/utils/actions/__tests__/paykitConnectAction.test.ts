@@ -4,9 +4,12 @@
  * Tests the Paykit connect flow including secure handoff with encrypted payloads.
  */
 
-import { handlePaykitConnectAction } from '../paykitConnectAction';
+import { handlePaykitConnectAction, isAllowedHttpsPaykitCallback } from '../paykitConnectAction';
 import { InputAction, PaykitConnectParams } from '../../inputParser';
 import { ActionContext } from '../../inputRouter';
+
+const HYPERCOLOR_WEB_CALLBACK =
+	'https://hypercolor.app/ring-callback?ch=8eOwP5zDIW4PwXitMsHu3RdUDCF60o3DTwI-firPVT8';
 
 // Mock dependencies
 jest.mock('react-native', () => {
@@ -266,6 +269,20 @@ describe('paykitConnectAction', () => {
 				);
 			}
 		);
+
+		it('opens the Hypercolor web callback with ch= preserved plus handoff params', async () => {
+			expect(isAllowedHttpsPaykitCallback(HYPERCOLOR_WEB_CALLBACK)).toBe(true);
+
+			const data = createActionData({ callback: HYPERCOLOR_WEB_CALLBACK });
+			await handlePaykitConnectAction(data, mockContext);
+
+			expect(Linking.openURL).toHaveBeenCalledTimes(1);
+			const opened = (Linking.openURL as jest.Mock).mock.calls[0][0] as string;
+			expect(opened).toContain('ch=8eOwP5zDIW4PwXitMsHu3RdUDCF60o3DTwI-firPVT8');
+			expect(opened).toContain('pubky=');
+			expect(opened).toContain('request_id=');
+			expect(opened).toContain('mode=secure_handoff');
+		});
 
 		it.each([
 			'https://hypercolor.app/ring-callback?ch=abc',

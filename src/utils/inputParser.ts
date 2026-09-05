@@ -13,6 +13,7 @@
 import { parseAuthUrl } from '@synonymdev/react-native-pubky';
 import { mnemonicPhraseToKeypair, getPublicKeyFromSecretKey } from '@synonymdev/react-native-pubky';
 import { EBackupPreference } from '../types/pubky';
+import { parseQueryPairs } from './queryParams';
 
 // Input source types
 export type InputSource = 'deeplink' | 'scan' | 'clipboard';
@@ -188,7 +189,7 @@ const isValidInviteCode = (code: string): boolean => {
  */
 const parseSignupParams = (queryString: string): SignupParams | null => {
 	try {
-		const params = new URLSearchParams(queryString);
+		const params = parseQueryPairs(queryString);
 		return {
 			homeserver: decodeURIComponent(params.get('hs') || ''),
 			inviteCode: params.get('st') || '',
@@ -208,7 +209,7 @@ const parseSignupParams = (queryString: string): SignupParams | null => {
  */
 const parseGetProfileParams = (queryString: string): GetProfileParams | null => {
 	try {
-		const params = new URLSearchParams(queryString);
+		const params = parseQueryPairs(queryString);
 		const pubkey = params.get('pubkey');
 		const callback = params.get('callback');
 		if (!pubkey || !callback) {
@@ -231,7 +232,7 @@ const parseGetProfileParams = (queryString: string): GetProfileParams | null => 
  */
 const parseGetFollowsParams = (queryString: string): GetFollowsParams | null => {
 	try {
-		const params = new URLSearchParams(queryString);
+		const params = parseQueryPairs(queryString);
 		const callback = params.get('callback');
 		if (!callback) {
 			return null;
@@ -255,7 +256,7 @@ const parseGetFollowsParams = (queryString: string): GetFollowsParams | null => 
  */
 const parsePaykitConnectParams = (queryString: string): PaykitConnectParams | null => {
 	try {
-		const params = new URLSearchParams(queryString);
+		const params = parseQueryPairs(queryString);
 		const deviceId = params.get('deviceId');
 		const callback = params.get('callback');
 		if (!deviceId || !callback) {
@@ -264,6 +265,10 @@ const parsePaykitConnectParams = (queryString: string): PaykitConnectParams | nu
 		const includeEpoch1Str = params.get('includeEpoch1');
 		const includeEpoch1 = includeEpoch1Str === 'false' ? false : true; // Default to true
 		const ephemeralPk = params.get('ephemeralPk') || undefined;
+		// Third decode: pre-decode loop + parseQueryPairs already decoded.
+		// Kept for parity when the whole-string loop stops early (malformed `%`
+		// in a sibling param) and callback is still percent-encoded. Hypercolor
+		// `ch` is unpadded base64url (A-Za-z0-9_-) so this is a no-op there.
 		return {
 			deviceId,
 			callback: decodeURIComponent(callback),
@@ -284,7 +289,7 @@ const parsePaykitConnectParams = (queryString: string): PaykitConnectParams | nu
  */
 const parseSignMessageParams = (queryString: string): SignMessageParams | null => {
 	try {
-		const params = new URLSearchParams(queryString);
+		const params = parseQueryPairs(queryString);
 		const message = params.get('message');
 		const callback = params.get('callback');
 		if (!message || !callback) {
@@ -321,7 +326,10 @@ export const parseInput = async (
 
 	let processedInput = rawInput.trim();
 
-	// Try to decode URL encoding - may need multiple passes for double-encoded URLs
+	// Try to decode URL encoding - may need multiple passes for double-encoded URLs.
+	// This pre-decode turns a callback's `%3F`/`%3D` into literal `?`/`=` before
+	// the query is split, so the splitter must split each pair on the first `=`
+	// only (see parseQueryPairs). Do not remove this loop: other flows depend on it.
 	let decoded = processedInput;
 	for (let i = 0; i < 3; i++) {
 		try {
@@ -341,7 +349,7 @@ export const parseInput = async (
 	if (processedInput.startsWith('pubkyring://migrate?')) {
 		try {
 			const queryString = processedInput.substring('pubkyring://migrate?'.length);
-			const params = new URLSearchParams(queryString);
+			const params = parseQueryPairs(queryString);
 			const index = parseInt(params.get('index') || '', 10);
 			const total = parseInt(params.get('total') || '', 10);
 			const key = decodeURIComponent(params.get('key') || '');
