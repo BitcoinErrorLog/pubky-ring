@@ -153,7 +153,9 @@
     "sessionReturned": "Datos de la sesión enviados a la aplicación solicitante",
     "signInFailed": "Fallo al iniciar sesión",
     "invalidCallback": "URL de devolución de llamada no válida proporcionada",
-    "cannotOpenCallback": "No se puede abrir la URL de devolución de llamada para devolver la sesión"
+    "cannotOpenCallback": "No se puede abrir la URL de devolución de llamada para devolver la sesión",
+    "webHandoffApproved": "Approved. Return to your browser to continue.",
+    "webHandoffRelayFailed": "Could not reach your browser. Please rescan the QR code."
   },
   "errors": {
     "failedToParseQR": "Fallo al analizar los datos del código QR",

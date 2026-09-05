@@ -5,11 +5,24 @@
  */
 
 import { handlePaykitConnectAction, isAllowedHttpsPaykitCallback } from '../paykitConnectAction';
-import { InputAction, PaykitConnectParams } from '../../inputParser';
+import {
+	InputAction,
+	PaykitConnectParams,
+	parseInput,
+	isPaykitConnectAction,
+} from '../../inputParser';
 import { ActionContext } from '../../inputRouter';
+import { DEFAULT_HOMESERVER } from '../../constants';
 
 const HYPERCOLOR_WEB_CALLBACK =
 	'https://hypercolor.app/ring-callback?ch=8eOwP5zDIW4PwXitMsHu3RdUDCF60o3DTwI-firPVT8';
+const HYPERCOLOR_RELAY_URL =
+	'https://httprelay.pubky.app/link/hc-8eOwP5zDIW4PwXitMsHu3RdUDCF60o3DTwI-firPVT8';
+const HYPERCOLOR_WEB_LOGIN_QR =
+	'pubkyring://paykit-connect?deviceId=hypercolor-web-1a070b03cdc&callback=https%3A%2F%2Fhypercolor.app%2Fring-callback%3Fch%3D8eOwP5zDIW4PwXitMsHu3RdUDCF60o3DTwI-firPVT8&ephemeralPk=c9aaad5b10794814e6ca4a5a18ea2aebb0467c83fd45515ab1634910e6a0b172&caps=%2Fpub%2Fpaykit%2F%3Arw%2C%2Fpub%2Fhypercolor.app%2Fv1%2F%3Arw';
+
+const mockFetch = jest.fn();
+const originalFetch = global.fetch;
 
 // Mock dependencies
 jest.mock('react-native', () => {
@@ -132,6 +145,11 @@ describe('paykitConnectAction', () => {
 
 	beforeEach(() => {
 		jest.clearAllMocks();
+		mockFetch.mockReset();
+		mockFetch.mockResolvedValue({ ok: true, status: 200 });
+		global.fetch = mockFetch as unknown as typeof fetch;
+		(Linking.canOpenURL as jest.Mock).mockResolvedValue(true);
+		(Linking.openURL as jest.Mock).mockResolvedValue(undefined);
 		(isNativeModuleAvailable as jest.Mock).mockReturnValue(true);
 		(signInToHomeserver as jest.Mock).mockResolvedValue(
 			createOkResult({
@@ -179,6 +197,10 @@ describe('paykitConnectAction', () => {
 		mockNativePut.mockReset();
 		mockNativePut.mockResolvedValue(['success', 'stored-url']);
 		(put as jest.Mock).mockResolvedValue(createOkResult(undefined));
+	});
+
+	afterAll(() => {
+		global.fetch = originalFetch;
 	});
 
 	describe('validation', () => {
@@ -270,26 +292,11 @@ describe('paykitConnectAction', () => {
 			}
 		);
 
-		it('opens the Hypercolor web callback with ch= preserved plus handoff params', async () => {
-			expect(isAllowedHttpsPaykitCallback(HYPERCOLOR_WEB_CALLBACK)).toBe(true);
-
-			const data = createActionData({ callback: HYPERCOLOR_WEB_CALLBACK });
-			await handlePaykitConnectAction(data, mockContext);
-
-			expect(Linking.openURL).toHaveBeenCalledTimes(1);
-			const opened = (Linking.openURL as jest.Mock).mock.calls[0][0] as string;
-			expect(opened).toContain('ch=8eOwP5zDIW4PwXitMsHu3RdUDCF60o3DTwI-firPVT8');
-			expect(opened).toContain('pubky=');
-			expect(opened).toContain('request_id=');
-			expect(opened).toContain('mode=secure_handoff');
-		});
-
 		it.each([
 			'https://hypercolor.app/ring-callback?ch=abc',
 			'https://www.hypercolor.app/ring-callback?ch=abc',
 			'HTTPS://hypercolor.app/ring-callback?ch=abc',
-			'https://hypercolor.app/ring-callback?ch=x:443',
-		])('should accept first-party https callback %s', async (callback) => {
+		])('should accept first-party https callback %s without opening a browser', async (callback) => {
 			const data = createActionData({ callback });
 
 			await handlePaykitConnectAction(data, mockContext);
@@ -300,10 +307,27 @@ describe('paykitConnectAction', () => {
 					description: 'session.invalidCallback',
 				})
 			);
-			expect(Linking.openURL).toHaveBeenCalledWith(
-				expect.stringMatching(
-					/^https:\/\/(www\.)?hypercolor\.app\/ring-callback\?ch=[^&]+&pubky=[^&]+&request_id=[^&]+&mode=secure_handoff/i
-				)
+			expect(Linking.openURL).not.toHaveBeenCalled();
+			expect(mockFetch).toHaveBeenCalledTimes(1);
+		});
+
+		it('allowlists ch=x:443 but rejects it before fetch (colon is not base64url)', async () => {
+			const callback = 'https://hypercolor.app/ring-callback?ch=x:443';
+			expect(isAllowedHttpsPaykitCallback(callback)).toBe(true);
+
+			const result = await handlePaykitConnectAction(
+				createActionData({ callback }),
+				mockContext
+			);
+
+			expect(result.isErr()).toBe(true);
+			expect(mockFetch).not.toHaveBeenCalled();
+			expect(Linking.openURL).not.toHaveBeenCalled();
+			expect(showToast).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: 'error',
+					description: 'session.invalidCallback',
+				})
 			);
 		});
 
@@ -630,6 +654,120 @@ describe('paykitConnectAction', () => {
 				hexDeviceId,
 				0
 			);
+		});
+	});
+
+	describe('https web handoff via httprelay', () => {
+		const expectedRelayBody = {
+			pubky: 'test-pubky-z32',
+			request_id: 'i'.repeat(64),
+			mode: 'secure_handoff',
+			homeserver: DEFAULT_HOMESERVER,
+		};
+
+		it('POSTs the four-field locator to httprelay and never opens a browser', async () => {
+			expect(isAllowedHttpsPaykitCallback(HYPERCOLOR_WEB_CALLBACK)).toBe(true);
+
+			const result = await handlePaykitConnectAction(
+				createActionData({ callback: HYPERCOLOR_WEB_CALLBACK }),
+				mockContext
+			);
+
+			expect(result.isOk()).toBe(true);
+			expect(mockFetch).toHaveBeenCalledTimes(1);
+			const [url, init] = mockFetch.mock.calls[0];
+			expect(url).toBe(HYPERCOLOR_RELAY_URL);
+			expect(init.method).toBe('POST');
+			expect(init.headers).toEqual({ 'content-type': 'application/json' });
+			expect(JSON.parse(init.body)).toEqual(expectedRelayBody);
+			expect(Linking.openURL).not.toHaveBeenCalled();
+			expect(Linking.canOpenURL).not.toHaveBeenCalled();
+			expect(showToast).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: 'success',
+					description: 'session.webHandoffApproved',
+				})
+			);
+		});
+
+		it.each([
+			['relay 500', { ok: false, status: 500 }],
+			['fetch rejects', new Error('network down')],
+			['fetch aborts', Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' })],
+		])('does not openURL when %s', async (_label, fetchOutcome) => {
+			if (fetchOutcome instanceof Error) {
+				mockFetch.mockRejectedValue(fetchOutcome);
+			} else {
+				mockFetch.mockResolvedValue(fetchOutcome);
+			}
+
+			const result = await handlePaykitConnectAction(
+				createActionData({ callback: HYPERCOLOR_WEB_CALLBACK }),
+				mockContext
+			);
+
+			expect(result.isErr()).toBe(true);
+			if (result.isErr()) {
+				expect(String(result.error)).toContain('Relay post failed');
+			}
+			expect(Linking.openURL).not.toHaveBeenCalled();
+			expect(showToast).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: 'error',
+					description: 'session.webHandoffRelayFailed',
+				})
+			);
+		});
+
+		it.each([
+			['https://hypercolor.app/ring-callback?ch=hc-x/y', 'slash in ch'],
+			['https://hypercolor.app/ring-callback?ch=x%2Fy', 'percent-encoded slash'],
+			['https://hypercolor.app/ring-callback?ch=', 'empty ch'],
+			[`https://hypercolor.app/ring-callback?ch=${'A'.repeat(200)}`, '200-char ch'],
+		])('rejects %s before any network call', async (callback) => {
+			const result = await handlePaykitConnectAction(
+				createActionData({ callback }),
+				mockContext
+			);
+
+			expect(result.isErr()).toBe(true);
+			expect(mockFetch).not.toHaveBeenCalled();
+			expect(Linking.openURL).not.toHaveBeenCalled();
+			expect(showToast).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: 'error',
+					description: 'session.invalidCallback',
+				})
+			);
+		});
+
+		it('custom-scheme callback still uses openURL and never fetch', async () => {
+			const result = await handlePaykitConnectAction(
+				createActionData({ callback: 'bitkit://paykit-setup' }),
+				mockContext
+			);
+
+			expect(result.isOk()).toBe(true);
+			expect(mockFetch).not.toHaveBeenCalled();
+			expect(Linking.openURL).toHaveBeenCalledTimes(1);
+			expect(Linking.openURL).toHaveBeenCalledWith(
+				expect.stringMatching(/^bitkit:\/\/paykit-setup\?/)
+			);
+		});
+
+		it('real Hypercolor QR: parseInput → handler → relay URL with hc- prefix', async () => {
+			const parsed = await parseInput(HYPERCOLOR_WEB_LOGIN_QR, 'scan');
+			expect(isPaykitConnectAction(parsed.data)).toBe(true);
+			if (!isPaykitConnectAction(parsed.data)) {
+				return;
+			}
+
+			const result = await handlePaykitConnectAction(parsed.data, mockContext);
+
+			expect(result.isOk()).toBe(true);
+			expect(mockFetch).toHaveBeenCalledTimes(1);
+			expect(mockFetch.mock.calls[0][0]).toBe(HYPERCOLOR_RELAY_URL);
+			expect(Linking.openURL).not.toHaveBeenCalled();
 		});
 	});
 });

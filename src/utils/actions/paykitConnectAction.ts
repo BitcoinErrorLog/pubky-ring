@@ -20,8 +20,13 @@
  * 5. Ring stores encrypted envelope at /pub/paykit.app/v0/handoff/{request_id}
  * 6. Ring publishes KeyBinding at /pub/paykit.app/v0/keybinding (contains InboxKey, TransportKey, AppKey)
  * 7. Ring publishes Noise endpoint at /pub/paykit.app/v0/noise (for discoverability)
- * 8. Ring returns: bitkit://paykit-setup?pubky=...&request_id=...&mode=secure_handoff
- * 9. Bitkit fetches envelope from homeserver, decrypts with ephemeral secret key
+ * 8. Native custom-scheme callback: Ring opens bitkit://… / hypercolor://… with
+ *    pubky + request_id + mode=secure_handoff + homeserver (same-device).
+ *    First-party https callback: Ring NEVER opens a browser. It POSTs those
+ *    four public locator fields to httprelay (HYPERCOLOR_HTTP_RELAY_BASE/hc-<ch>)
+ *    so the page that is already polling that channel can continue on its own
+ *    device. Ring cannot know which device served a web QR.
+ * 9. Bitkit/Hypercolor fetches envelope from homeserver, decrypts with ephemeral secret key
  * 10. Bitkit extracts InboxKey, AppKey, noise_seed for local use
  *
  * SECURITY PROPERTIES:
@@ -44,6 +49,7 @@ import { showToast } from '../helpers';
 import { getErrorMessage } from '../errorHandler';
 import { getPubkyDataFromStore } from '../store-helpers';
 import { DEFAULT_HOMESERVER } from '../constants';
+import { parseQueryPairs } from '../queryParams';
 import i18n from '../../i18n';
 import {
 	deriveX25519ForDeviceEpoch as nativeDeriveX25519,
@@ -61,25 +67,29 @@ import {
 } from '../PubkyNoiseModule';
 
 /**
- * Callbacks Ring is allowed to open after paykit-connect.
+ * Callbacks Ring is allowed to complete after paykit-connect.
  *
  * Custom schemes must stay aligned with AndroidManifest.xml <queries>
- * and ios/pubkyring/Info.plist LSApplicationQueriesSchemes.
- * Arbitrary `https` is still rejected: an attacker QR could otherwise
- * redirect the handoff locator (pubky + request_id + homeserver) to an
- * attacker URL.
+ * and ios/pubkyring/Info.plist LSApplicationQueriesSchemes. Those are
+ * same-device by definition and still use Linking.openURL.
  *
- * The only https exception is an exact-match allowlist of first-party
- * Hypercolor web endpoints (origin + pathname). Host is matched
- * case-insensitively with no port, userinfo, or trailing-dot tricks;
- * pathname must be exactly `/ring-callback` (no slash variants, `..`,
- * or encodings); fragments are rejected. Query is required (`ch`) and
- * cannot change origin or path. A queryless callback is rejected here
- * and on-device by React Native's URL parser (it appends `/`, so the
- * path becomes `/ring-callback/`); that reject is acceptable because
- * Hypercolor always sends `?ch=`. Exact-match origin+path keeps the
- * redirect concern closed because the locator can only land on those
- * first-party pages.
+ * Arbitrary `https` is still rejected: an attacker QR could otherwise
+ * name an attacker URL as the handoff destination. The only https
+ * exception is an exact-match allowlist of first-party Hypercolor web
+ * endpoints (origin + pathname). Host is matched case-insensitively
+ * with no port, userinfo, or trailing-dot tricks; pathname must be
+ * exactly `/ring-callback` (no slash variants, `..`, or encodings);
+ * fragments are rejected. Query is required (`ch`) and cannot change
+ * origin or path. A queryless callback is rejected here and on-device
+ * by React Native's URL parser (it appends `/`, so the path becomes
+ * `/ring-callback/`); that reject is acceptable because Hypercolor
+ * always sends `?ch=`.
+ *
+ * Allowed https callbacks are NOT opened. Ring posts the public locator
+ * to httprelay itself (see completeHandoffCallback). The allowlist only
+ * decides that this QR is a Hypercolor web handoff, not a custom-scheme
+ * deep link. `ch` is then re-validated (base64url, ≤128) before any
+ * network call so a crafted query cannot change the relay host or path.
  */
 const ALLOWED_PAYKIT_CALLBACK_SCHEMES = new Set([
 	'bitkit',
@@ -93,6 +103,16 @@ const ALLOWED_HTTPS_CALLBACK_HOSTS = new Set([
 	'www.hypercolor.app',
 ]);
 const ALLOWED_HTTPS_CALLBACK_PATHNAME = '/ring-callback';
+
+// Mirrors Hypercolor web's DEFAULT_HTTP_RELAY (src/lib/http-relay.ts).
+// Web polls `${DEFAULT_HTTP_RELAY}/hc-<ch>`; Ring must POST to the same
+// host+path. Do not read this from the QR — only `ch` is attacker-chosen.
+const HYPERCOLOR_HTTP_RELAY_BASE = 'https://httprelay.pubky.app/link';
+const RELAY_CHANNEL_PREFIX = 'hc-';
+// Web channel id is unpadded base64url of a SHA-256 digest (43 chars).
+// Fail closed on anything else so `ch` cannot inject `/`, `?`, or host.
+const RELAY_CHANNEL_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+const RELAY_POST_TIMEOUT_MS = 30_000;
 
 const CALLBACK_SCHEME_RE = /^([a-z][a-z0-9+.-]*):\/\//i;
 
@@ -393,8 +413,10 @@ export const handlePaykitConnectAction = async (
 		return rejectInvalidCallback();
 	}
 
-	// SECURITY: ephemeralPk is REQUIRED for secure handoff
-	// Legacy mode (without encryption) has been removed
+	// SECURITY: ephemeralPk is REQUIRED for secure handoff.
+	// Legacy mode (keys in the callback URL) has been removed. That also
+	// means an https callback can never carry secrets — even if one were
+	// presented, this reject fires before any relay post or openURL.
 	if (!ephemeralPk) {
 		showToast({
 			type: 'error',
@@ -792,7 +814,94 @@ const computeInboxKid = async (inboxPkHex: string): Promise<string> => {
 };
 
 /**
- * Complete the handoff by opening the callback URL
+ * `ch` from the QR query. parseQueryPairs (first `=` only) — never
+ * URLSearchParams / URL.search, which RN 0.83 truncates on embedded `=`.
+ * Charset is the web's unpadded base64url channel digest; empty, oversize,
+ * or any other character fails closed before fetch.
+ */
+const extractRelayChannelId = (callback: string): string | null => {
+	const queryStart = callback.indexOf('?');
+	if (queryStart === -1) {
+		return null;
+	}
+	const ch = parseQueryPairs(callback.slice(queryStart)).get('ch');
+	if (ch === null || !RELAY_CHANNEL_ID_RE.test(ch)) {
+		return null;
+	}
+	return ch;
+};
+
+const rejectRelayPostFailed = (chPrefix: string, status: string | number): Result<string> => {
+	// Log only ch prefix + status. Never the locator body or full ch.
+	console.log('[PaykitConnectAction] Relay POST ch prefix:', chPrefix, 'status:', status);
+	showToast({
+		type: 'error',
+		title: i18n.t('common.error'),
+		description: i18n.t('session.webHandoffRelayFailed'),
+	});
+	return err('Relay post failed');
+};
+
+/**
+ * POST the public locator to httprelay. Body field names match
+ * Hypercolor publishHandoffParamsToRelay / validateHandoffPublicParams:
+ * pubky, request_id, mode:"secure_handoff", homeserver. No secrets.
+ * Linking.openURL is never called on this path — not even as fallback.
+ */
+const publishHttpsHandoffToRelay = async ({
+	pubky,
+	requestId,
+	homeserver,
+	callback,
+}: {
+	pubky: string;
+	requestId: string;
+	homeserver: string;
+	callback: string;
+}): Promise<Result<string>> => {
+	const ch = extractRelayChannelId(callback);
+	if (ch === null) {
+		return rejectInvalidCallback();
+	}
+
+	const chPrefix = ch.substring(0, 8);
+	const relayUrl = `${HYPERCOLOR_HTTP_RELAY_BASE}/${RELAY_CHANNEL_PREFIX}${ch}`;
+	const body = JSON.stringify({
+		pubky,
+		request_id: requestId,
+		mode: 'secure_handoff',
+		homeserver,
+	});
+
+	const controller = new AbortController();
+	const timeoutId = setTimeout(() => controller.abort(), RELAY_POST_TIMEOUT_MS);
+	try {
+		const response = await fetch(relayUrl, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body,
+			signal: controller.signal,
+		});
+		if (response.status < 200 || response.status >= 300) {
+			return rejectRelayPostFailed(chPrefix, response.status);
+		}
+		console.log('[PaykitConnectAction] Relay POST ch prefix:', chPrefix, 'status:', response.status);
+		showToast({
+			type: 'success',
+			title: i18n.t('session.success'),
+			description: i18n.t('session.webHandoffApproved'),
+		});
+		return ok(pubky);
+	} catch {
+		return rejectRelayPostFailed(chPrefix, 'error');
+	} finally {
+		clearTimeout(timeoutId);
+	}
+};
+
+/**
+ * Complete the handoff: https → relay POST (never open a browser);
+ * custom scheme → Linking.openURL (same-device).
  */
 const completeHandoffCallback = async (
 	pubky: string,
@@ -808,15 +917,25 @@ const completeHandoffCallback = async (
 		return rejectInvalidCallback();
 	}
 
-	const callbackScheme = parseCallbackScheme(callback) ?? 'unknown';
-	const requestIdPrefix = requestId.substring(0, 8);
-
-	// Get the user's homeserver pubkey for the callback
 	const pubkyData = getPubkyDataFromStore(sessionInfo.pubky);
 	const homeserverPubkey = pubkyData?.homeserver || DEFAULT_HOMESERVER;
 
-	// Build callback URL with pubky, request_id, and homeserver
-	// Homeserver is needed for iOS which doesn't have pkarr resolution
+	// Web QR: Ring cannot tell which device served the page. Post the
+	// locator to the channel the page is already polling. Never openURL.
+	if (isAllowedHttpsPaykitCallback(callback)) {
+		return await publishHttpsHandoffToRelay({
+			pubky: sessionInfo.pubky,
+			requestId,
+			homeserver: homeserverPubkey,
+			callback,
+		});
+	}
+
+	const callbackScheme = parseCallbackScheme(callback) ?? 'unknown';
+	const requestIdPrefix = requestId.substring(0, 8);
+
+	// Custom-scheme: same-device. Homeserver is needed for iOS which
+	// doesn't have pkarr resolution.
 	const callbackParams: Record<string, string> = {
 		pubky: sessionInfo.pubky,
 		request_id: requestId,
@@ -833,7 +952,6 @@ const completeHandoffCallback = async (
 	);
 	console.log('[PaykitConnectAction] Callback params: requestId prefix', requestIdPrefix);
 
-	// Open the callback URL
 	const canOpen = await Linking.canOpenURL(callbackUrl);
 	if (!canOpen) {
 		showToast({
