@@ -34,6 +34,9 @@ jest.mock('react-native', () => ({
 		Pubky: {
 			auth: (...args: unknown[]) => mockNativeAuth(...args),
 			put: jest.fn().mockResolvedValue(['success', 'stored-url']),
+			list: jest.fn().mockResolvedValue(['success', '[]']),
+			get: jest.fn().mockResolvedValue(['error', 'not found']),
+			deleteFile: jest.fn().mockResolvedValue(['success', 'deleted']),
 		},
 	},
 }));
@@ -46,6 +49,8 @@ jest.mock('@synonymdev/react-native-pubky', () => {
 	return {
 		...actual,
 		put: jest.fn().mockResolvedValue(mockOk(undefined)),
+		list: jest.fn().mockResolvedValue(mockOk([])),
+		deleteFile: jest.fn().mockResolvedValue(mockOk(undefined)),
 	};
 });
 

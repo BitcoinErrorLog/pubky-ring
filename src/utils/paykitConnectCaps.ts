@@ -1,6 +1,17 @@
 import { parseQueryPairs } from './queryParams';
 
 /**
+ * First-party https Hypercolor grant. Mirrors web RING_GRANT_CAPABILITIES
+ * (`hypercolor-web` `src/types/link.ts`). Ring pins this set on the
+ * https path before the confirmation sheet so a QR cannot impersonate
+ * Hypercolor with `/:rw` (P2-1). Custom-scheme callbacks are unbounded.
+ */
+export const HYPERCOLOR_EXPECTED_CAPS = [
+	'/pub/paykit/:rw',
+	'/pub/hypercolor.app/v1/:rw',
+] as const;
+
+/**
  * Paykit-connect `caps` query → ConfirmAuth-shaped { path, permission }.
  *
  * Hypercolor sends `/pub/paykit/:rw,/pub/hypercolor.app/v1/:rw`.

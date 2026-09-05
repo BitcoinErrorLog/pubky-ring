@@ -326,6 +326,34 @@ describe('inputParser', () => {
 			}
 		});
 
+		it('trims spaces after commas in paykit-connect caps', async () => {
+			const url =
+				'pubkyring://paykit-connect?deviceId=d1&callback=bitkit://paykit-setup' +
+				'&caps=%2Fpub%2Fpaykit%2F%3Arw%2C%20%2Fpub%2Fhypercolor.app%2Fv1%2F%3Arw';
+
+			const result = await parseInput(url, 'deeplink');
+
+			expect(isPaykitConnectAction(result.data)).toBe(true);
+			if (isPaykitConnectAction(result.data)) {
+				expect(result.data.params.caps).toEqual([
+					'/pub/paykit/:rw',
+					'/pub/hypercolor.app/v1/:rw',
+				]);
+			}
+		});
+
+		it('accepts optional v=2 on paykit-connect and ignores it', async () => {
+			const url =
+				'pubkyring://paykit-connect?deviceId=d1&callback=bitkit://paykit-setup&v=2';
+
+			const result = await parseInput(url, 'deeplink');
+
+			expect(isPaykitConnectAction(result.data)).toBe(true);
+			if (isPaykitConnectAction(result.data)) {
+				expect(result.data.params.v).toBe('2');
+			}
+		});
+
 		it('keeps Hypercolor https callback ch= after whole-string pre-decode', async () => {
 			const result = await parseInput(HYPERCOLOR_WEB_LOGIN_QR, 'scan');
 

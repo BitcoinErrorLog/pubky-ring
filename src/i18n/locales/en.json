@@ -153,6 +153,7 @@
     "sessionReturned": "Session data sent to requesting app",
     "signInFailed": "Sign In Failed",
     "invalidCallback": "Invalid callback URL provided",
+    "paykitConnectStaleQr": "This code is out of date. Reload hypercolor.app and scan the new code.",
     "cannotOpenCallback": "Cannot open callback URL to return session",
     "webHandoffApproved": "Approved. Return to your browser to continue.",
     "webHandoffRelayFailed": "Could not reach your browser. Please rescan the QR code.",

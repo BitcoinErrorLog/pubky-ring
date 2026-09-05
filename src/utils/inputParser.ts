@@ -87,6 +87,10 @@ export interface PaykitConnectParams {
 	// Bitkit/Hypercolor-mobile QRs must not carry these — the action rejects.
 	secret?: string;
 	relay?: string;
+	// Optional combined-grant marker (`v=2`). Ignored if absent; presence
+	// is reserved so Ring can later distinguish an old cached web page
+	// from a malformed QR without inferring from missing secret/relay.
+	v?: string;
 }
 
 // Sign message parameters
@@ -274,9 +278,10 @@ const parsePaykitConnectParams = (queryString: string): PaykitConnectParams | nu
 		const includeEpoch1 = includeEpoch1Str === 'false' ? false : true; // Default to true
 		const ephemeralPk = params.get('ephemeralPk') || undefined;
 		const capsRaw = params.get('caps') || '';
-		const caps = capsRaw.split(',').filter(Boolean);
+		const caps = capsRaw.split(',').map((item) => item.trim()).filter(Boolean);
 		const secretRaw = params.get('secret') || '';
 		const relayRaw = params.get('relay') || '';
+		const protocolVersion = params.get('v') || undefined;
 		// Third decode: pre-decode loop + parseQueryPairs already decoded.
 		// Kept for parity when the whole-string loop stops early (malformed `%`
 		// in a sibling param) and callback is still percent-encoded. Hypercolor
@@ -289,6 +294,7 @@ const parsePaykitConnectParams = (queryString: string): PaykitConnectParams | nu
 			caps,
 			secret: secretRaw ? secretRaw : undefined,
 			relay: relayRaw ? decodeURIComponent(relayRaw) : undefined,
+			v: protocolVersion,
 		};
 	} catch {
 		return null;

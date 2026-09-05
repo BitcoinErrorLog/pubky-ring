@@ -53,6 +53,9 @@ jest.mock('react-native', () => {
 
 jest.mock('@synonymdev/react-native-pubky', () => ({
 	put: jest.fn(),
+	list: jest.fn(),
+	get: jest.fn(),
+	deleteFile: jest.fn(),
 	parseAuthUrl: jest.fn().mockResolvedValue({
 		isOk: () => false,
 		isErr: () => true,
@@ -123,7 +126,7 @@ jest.mock('../../../i18n', () => ({
 }));
 
 import { Linking } from 'react-native';
-import { put } from '@synonymdev/react-native-pubky';
+import { put, list, get, deleteFile } from '@synonymdev/react-native-pubky';
 import { signInToHomeserver, getPubkySecretKey, signAndPostAuthToken } from '../../pubky';
 import {
 	deriveX25519ForDeviceEpoch,
@@ -260,6 +263,9 @@ describe('paykitConnectAction', () => {
 		mockNativePut.mockReset();
 		mockNativePut.mockResolvedValue(['success', 'stored-url']);
 		(put as jest.Mock).mockResolvedValue(createOkResult(undefined));
+		(list as jest.Mock).mockResolvedValue(createOkResult([]));
+		(get as jest.Mock).mockResolvedValue(createErrResult('not found'));
+		(deleteFile as jest.Mock).mockResolvedValue(createOkResult(undefined));
 	});
 
 	afterAll(() => {
@@ -963,6 +969,11 @@ describe('paykitConnectAction', () => {
 			expect(SheetManager.show).not.toHaveBeenCalled();
 			expect(signAndPostAuthToken).not.toHaveBeenCalled();
 			expect(mockFetch).not.toHaveBeenCalled();
+			expect(showToast).toHaveBeenCalledWith(
+				expect.objectContaining({
+					description: 'session.paykitConnectStaleQr',
+				})
+			);
 		});
 
 		it('rejects custom-scheme callbacks that carry secret or relay', async () => {

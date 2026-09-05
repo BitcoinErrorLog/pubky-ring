@@ -126,6 +126,21 @@ jest.mock('@synonymdev/react-native-pubky', () => ({
 		isErr: () => false,
 		value: undefined,
 	}),
+	list: jest.fn().mockResolvedValue({
+		isOk: () => true,
+		isErr: () => false,
+		value: [],
+	}),
+	get: jest.fn().mockResolvedValue({
+		isOk: () => false,
+		isErr: () => true,
+		error: 'not found',
+	}),
+	deleteFile: jest.fn().mockResolvedValue({
+		isOk: () => true,
+		isErr: () => false,
+		value: undefined,
+	}),
 }));
 
 jest.mock('../../pubky', () => ({
@@ -181,6 +196,7 @@ jest.mock('../../store-helpers', () => ({
 }));
 
 import { SheetManager } from 'react-native-actions-sheet';
+import { Linking } from 'react-native';
 import { handlePaykitConnectAction } from '../paykitConnectAction';
 import { InputAction } from '../../inputParser';
 import { signInToHomeserver, getPubkySecretKey, signAndPostAuthToken } from '../../pubky';
@@ -197,7 +213,7 @@ import {
 	sb2GenerateContextId,
 } from '../../PubkyNoiseModule';
 import { isE2EAutoApproveEnabled } from '../../e2eAutoApprove';
-import { put } from '@synonymdev/react-native-pubky';
+import { put, list, get, deleteFile } from '@synonymdev/react-native-pubky';
 import {
 	resetRequestGenerationForTests,
 } from '../../authRequestGeneration';
@@ -287,6 +303,9 @@ describe('combined https grant event-faithful', () => {
 		(sb2Encrypt as jest.Mock).mockResolvedValue('base64encodedSb2Envelope');
 		(sb2Sign as jest.Mock).mockResolvedValue('signedBase64Envelope');
 		(put as jest.Mock).mockResolvedValue(ok(undefined));
+		(list as jest.Mock).mockResolvedValue(ok([]));
+		(get as jest.Mock).mockResolvedValue(err('not found'));
+		(deleteFile as jest.Mock).mockResolvedValue(ok(undefined));
 		(signAndPostAuthToken as jest.Mock).mockImplementation(async ({ authUrl }: { authUrl: string }) => {
 			expect(authUrl.startsWith('pubkyauth:///?')).toBe(true);
 			try {
@@ -372,5 +391,122 @@ describe('combined https grant event-faithful', () => {
 
 		expect(result.isErr()).toBe(true);
 		expect(mockFetch.mock.calls.every((call) => call[0] !== locatorUrl)).toBe(true);
+	});
+
+	const decodeSb2Payload = (): Record<string, unknown> => {
+		const plaintextHex = (sb2Encrypt as jest.Mock).mock.calls[0][1] as string;
+		return JSON.parse(Buffer.from(plaintextHex, 'hex').toString('utf8'));
+	};
+
+	it('omits session_secret and capabilities from the https SB2 handoff payload', async () => {
+		const pending = handlePaykitConnectAction(data, context);
+		const options = await flushShow();
+		options.payload.onDecision(true);
+		await pending;
+
+		const payload = decodeSb2Payload();
+		expect(payload).not.toHaveProperty('session_secret');
+		expect(payload).not.toHaveProperty('capabilities');
+		expect(payload.pubky).toBe('test-pubky-z32');
+	});
+
+	it('includes session_secret and capabilities for bitkit:// custom-scheme handoff', async () => {
+		const pending = handlePaykitConnectAction({
+			action: InputAction.PaykitConnect,
+			params: {
+				deviceId: 'device123',
+				callback: 'bitkit://paykit-setup',
+				ephemeralPk,
+			},
+		}, context);
+		const options = await flushShow();
+		options.payload.onDecision(true);
+		const result = await pending;
+
+		expect(result.isOk()).toBe(true);
+		expect(Linking.openURL).toHaveBeenCalled();
+		const payload = decodeSb2Payload();
+		expect(payload.session_secret).toBe('session-secret-123');
+		expect(payload.capabilities).toEqual(['/pub:rw']);
+	});
+
+	it('rejects https /:rw caps at intake before the sheet or sign-in', async () => {
+		const pending = handlePaykitConnectAction({
+			...data,
+			params: {
+				...data.params,
+				caps: ['/:rw'],
+			},
+		}, context);
+		const result = await pending;
+
+		expect(result.isErr()).toBe(true);
+		expect(faithful.shows).toEqual([]);
+		expect(signInToHomeserver).not.toHaveBeenCalled();
+		expect(signAndPostAuthToken).not.toHaveBeenCalled();
+		expect(mockFetch).not.toHaveBeenCalled();
+	});
+
+	it('deletes the requestId-scoped handoff blob after a 2xx locator POST', async () => {
+		const pending = handlePaykitConnectAction(data, context);
+		const options = await flushShow();
+		options.payload.onDecision(true);
+		await pending;
+
+		const handoffUrl =
+			`pubky://test-pubky-z32/pub/paykit.app/v0/handoff/${'i'.repeat(64)}`;
+		expect(deleteFile).toHaveBeenCalledWith(handoffUrl, 'b'.repeat(64));
+	});
+
+	it('deletes the requestId-scoped handoff blob when auth POST fails', async () => {
+		mockFetch.mockResolvedValueOnce({ ok: false, status: 500, type: 'basic' });
+		const pending = handlePaykitConnectAction(data, context);
+		const options = await flushShow();
+		options.payload.onDecision(true);
+		await pending;
+
+		const handoffUrl =
+			`pubky://test-pubky-z32/pub/paykit.app/v0/handoff/${'i'.repeat(64)}`;
+		expect(deleteFile).toHaveBeenCalledWith(handoffUrl, 'b'.repeat(64));
+		expect(mockFetch.mock.calls.every((call) => call[0] !== locatorUrl)).toBe(true);
+	});
+
+	it('sweeps stale /pub/paykit.app/v0/handoff/ entries and does not delete other paths', async () => {
+		const staleUrl = 'pubky://test-pubky-z32/pub/paykit.app/v0/handoff/stale-request';
+		const otherFlowUrl = 'pubky://test-pubky-z32/pub/paykit.app/v0/handoff/fresh-request';
+		const keybindingUrl = 'pubky://test-pubky-z32/pub/paykit.app/v0/keybinding';
+		const otherIdentityUrl = 'pubky://other-pubky/pub/paykit.app/v0/handoff/x';
+		(list as jest.Mock).mockResolvedValue(ok([
+			staleUrl,
+			otherFlowUrl,
+			keybindingUrl,
+			otherIdentityUrl,
+		]));
+		(get as jest.Mock).mockImplementation(async (url: string) => {
+			if (url === staleUrl) {
+				return ok(JSON.stringify({
+					sb2: 'x',
+					created_at: Math.floor(Date.now() / 1000) - 6 * 60,
+				}));
+			}
+			if (url === otherFlowUrl) {
+				return ok(JSON.stringify({
+					sb2: 'x',
+					created_at: Math.floor(Date.now() / 1000) - 30,
+				}));
+			}
+			return err('not found');
+		});
+
+		const pending = handlePaykitConnectAction(data, context);
+		const options = await flushShow();
+		options.payload.onDecision(true);
+		await pending;
+
+		const deleted = (deleteFile as jest.Mock).mock.calls.map((call) => call[0]);
+		expect(deleted).toContain(staleUrl);
+		expect(deleted).not.toContain(keybindingUrl);
+		expect(deleted).not.toContain(otherIdentityUrl);
+		expect(deleted).not.toContain(otherFlowUrl);
 	});
 });

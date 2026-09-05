@@ -41,7 +41,12 @@
 
 import { Result, ok, err } from '@synonymdev/result';
 import { Linking } from 'react-native';
-import { put as originalPut } from '@synonymdev/react-native-pubky';
+import {
+	put as originalPut,
+	list as originalList,
+	get as originalGet,
+	deleteFile as originalDeleteFile,
+} from '@synonymdev/react-native-pubky';
 import { InputAction, PaykitConnectParams } from '../inputParser';
 import { ActionContext } from '../inputRouter';
 import { signInToHomeserver, getPubkySecretKey, signAndPostAuthToken } from '../pubky';
@@ -65,6 +70,7 @@ import {
 	formatPaykitConnectDestination,
 	parsePaykitConnectCaps,
 	parsePubkyAuthUrlCaps,
+	HYPERCOLOR_EXPECTED_CAPS,
 	paykitConnectCapSetsEqual,
 	serializePaykitConnectCaps,
 } from '../paykitConnectCaps';
@@ -130,6 +136,10 @@ const RELAY_CHANNEL_PREFIX = 'hc-';
 // Fail closed on anything else so `ch` cannot inject `/`, `?`, or host.
 const RELAY_CHANNEL_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const RELAY_POST_TIMEOUT_MS = 30_000;
+const HANDOFF_STORAGE_PREFIX = '/pub/paykit.app/v0/handoff/';
+const HANDOFF_TTL_SECONDS = 5 * 60;
+const HANDOFF_SWEEP_LIMIT = 20;
+const HANDOFF_DELETE_TIMEOUT_MS = 5_000;
 
 const CALLBACK_SCHEME_RE = /^([a-z][a-z0-9+.-]*):\/\//i;
 
@@ -371,6 +381,120 @@ const rejectInvalidCallback = (): Result<string> => {
 	return err(i18n.t('session.invalidCallback'));
 };
 
+const rejectStaleHypercolorQr = (): Result<string> => {
+	showToast({
+		type: 'error',
+		title: i18n.t('common.error'),
+		description: i18n.t('session.paykitConnectStaleQr'),
+	});
+	return err(i18n.t('session.paykitConnectStaleQr'));
+};
+
+const withBoundedTimeout = async <T>(work: Promise<T>, timeoutMs: number): Promise<T> => {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			work,
+			new Promise<never>((_, reject) => {
+				timer = setTimeout(() => reject(new Error('timeout')), timeoutMs);
+			}),
+		]);
+	} finally {
+		if (timer !== undefined) {
+			clearTimeout(timer);
+		}
+	}
+};
+
+const handoffBlobUrl = (pubky: string, requestId: string): string =>
+	`pubky://${pubky}${HANDOFF_STORAGE_PREFIX}${requestId}`;
+
+const isScopedHandoffUrl = (pubky: string, url: string): boolean => {
+	const prefix = `pubky://${pubky}${HANDOFF_STORAGE_PREFIX}`;
+	if (!url.startsWith(prefix)) {
+		return false;
+	}
+	const rest = url.slice(prefix.length);
+	return rest.length > 0 && !rest.includes('/') && !rest.includes('?');
+};
+
+const normalizeListedHandoffUrl = (pubky: string, listed: string): string | null => {
+	const trimmed = listed.trim();
+	if (isScopedHandoffUrl(pubky, trimmed)) {
+		return trimmed;
+	}
+	const prefix = HANDOFF_STORAGE_PREFIX;
+	if (trimmed.startsWith(prefix)) {
+		const requestId = trimmed.slice(prefix.length);
+		const url = handoffBlobUrl(pubky, requestId);
+		return isScopedHandoffUrl(pubky, url) ? url : null;
+	}
+	return null;
+};
+
+const deleteHandoffBlobBestEffort = async (
+	url: string,
+	secretKey: string,
+): Promise<void> => {
+	try {
+		await withBoundedTimeout(originalDeleteFile(url, secretKey), HANDOFF_DELETE_TIMEOUT_MS);
+	} catch {
+		console.warn('[PaykitConnectAction] Handoff blob delete failed');
+	}
+};
+
+const readHandoffCreatedAt = async (url: string): Promise<number | null> => {
+	try {
+		const result = await withBoundedTimeout(originalGet(url), HANDOFF_DELETE_TIMEOUT_MS);
+		if (result.isErr()) {
+			return null;
+		}
+		const body = result.value;
+		const parsed: unknown = typeof body === 'string' ? JSON.parse(body) : body;
+		if (
+			parsed &&
+			typeof parsed === 'object' &&
+			'created_at' in parsed &&
+			typeof (parsed as { created_at: unknown }).created_at === 'number'
+		) {
+			return (parsed as { created_at: number }).created_at;
+		}
+		// Legacy wrappers have no plaintext age; treat as stale (P2-2).
+		return 0;
+	} catch {
+		return null;
+	}
+};
+
+const sweepStaleHandoffBlobs = async (pubky: string, secretKey: string): Promise<void> => {
+	try {
+		const listed = await withBoundedTimeout(
+			originalList(`pubky://${pubky}${HANDOFF_STORAGE_PREFIX}`),
+			HANDOFF_DELETE_TIMEOUT_MS,
+		);
+		if (listed.isErr()) {
+			return;
+		}
+		const urls = (listed.value ?? [])
+			.map((item) => normalizeListedHandoffUrl(pubky, item))
+			.filter((item): item is string => item !== null)
+			.slice(0, HANDOFF_SWEEP_LIMIT);
+		const nowSeconds = Math.floor(Date.now() / 1000);
+		for (const url of urls) {
+			const createdAt = await readHandoffCreatedAt(url);
+			if (createdAt === null) {
+				continue;
+			}
+			if (nowSeconds - createdAt < HANDOFF_TTL_SECONDS) {
+				continue;
+			}
+			await deleteHandoffBlobBestEffort(url, secretKey);
+		}
+	} catch {
+		console.warn('[PaykitConnectAction] Handoff blob sweep failed');
+	}
+};
+
 /**
  * Wrapper for put() that properly captures native errors
  * Uses the react-native-pubky library's put function which handles
@@ -471,8 +595,8 @@ const deriveX25519Keypair = async (
 interface HandoffPayload {
 	version: number;
 	pubky: string;
-	session_secret: string;
-	capabilities: string[];
+	session_secret?: string;
+	capabilities?: string[];
 	device_id: string;
 	noise_keypairs: {
 		epoch: number;
@@ -592,9 +716,17 @@ export const handlePaykitConnectAction = async (
 	const isHttpsCallback = isAllowedHttpsPaykitCallback(callback);
 	// R7: secret+relay required iff https Hypercolor callback. Custom schemes
 	// (bitkit://, hypercolor://, …) must not carry them — reject, do not ignore.
+	// Missing secret/relay on https is the stale-web-tab case (P4-4), not a
+	// generic invalid callback.
 	if (isHttpsCallback) {
 		if (!isValidPaykitAuthSecret(secret) || !relay || !assertAllowedAuthRelay(relay)) {
-			return rejectInvalidCallback();
+			return rejectStaleHypercolorQr();
+		}
+		// Pin the first-party grant at intake, before the sheet and before
+		// any sign-in. Safer than waiting for postPubkyAuthThenLocator, and
+		// the sheet never presents attacker `/:rw` as Hypercolor.
+		if (!paykitConnectCapSetsEqual(data.params.caps ?? [], [...HYPERCOLOR_EXPECTED_CAPS])) {
+			return rejectCapsMismatch();
 		}
 	} else if (secret || relay) {
 		return rejectInvalidCallback();
@@ -690,6 +822,7 @@ export const handlePaykitConnectAction = async (
 			caps: data.params.caps,
 			secret,
 			relay,
+			isHttpsCallback,
 		});
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -728,6 +861,7 @@ const handleSecureHandoff = async ({
 	caps,
 	secret,
 	relay,
+	isHttpsCallback,
 }: {
 	pubky: string;
 	sessionInfo: { pubky: string; session_secret: string; capabilities: string[] };
@@ -741,9 +875,11 @@ const handleSecureHandoff = async ({
 	caps?: string[];
 	secret?: string;
 	relay?: string;
+	isHttpsCallback: boolean;
 }): Promise<Result<string>> => {
 	// Generate random request ID (256 bits)
 	const requestId = await generateRequestId();
+	await sweepStaleHandoffBlobs(pubky, ed25519SecretKey);
 
 	// Derive owner peerid (Ed25519 public key) from secret key for spec-compliant AAD
 	let ownerPeeridHex: string;
@@ -820,8 +956,12 @@ const handleSecureHandoff = async ({
 	const payload: HandoffPayload = {
 		version: 3, // Version 3 includes InboxKey and AppKey
 		pubky: sessionInfo.pubky,
-		session_secret: sessionInfo.session_secret,
-		capabilities: sessionInfo.capabilities,
+		...(isHttpsCallback
+			? {}
+			: {
+				session_secret: sessionInfo.session_secret,
+				capabilities: sessionInfo.capabilities,
+			}),
 		device_id: deviceId,
 		noise_keypairs: noiseKeypairs,
 		noise_seed: noiseSeed,
@@ -910,7 +1050,7 @@ const handleSecureHandoff = async ({
 	// The content is stored as a JSON object with { sb2: <base64> } wrapper
 	// This allows the homeserver to store binary data as JSON
 	const handoffPath = `pubky://${pubky}/pub/paykit.app/v0/handoff/${requestId}`;
-	const sb2Wrapper = { sb2: encryptedEnvelopeBase64 };
+	const sb2Wrapper = { sb2: encryptedEnvelopeBase64, created_at: nowSeconds };
 	console.log(
 		'[PaykitConnectAction] Storing SB2 handoff, requestId:',
 		requestId.substring(0, 8)
@@ -1074,12 +1214,14 @@ const publishHttpsHandoffToRelay = async ({
 	homeserver,
 	callback,
 	mode,
+	ed25519SecretKey,
 }: {
 	pubky: string;
 	requestId: string;
 	homeserver: string;
 	callback: string;
 	mode: 'secure_handoff' | 'secure_handoff+pubkyauth';
+	ed25519SecretKey: string;
 }): Promise<Result<string>> => {
 	const ch = extractRelayChannelId(callback);
 	if (ch === null) {
@@ -1109,6 +1251,7 @@ const publishHttpsHandoffToRelay = async ({
 			return rejectRelayPostFailed(chPrefix, response.status);
 		}
 		console.log('[PaykitConnectAction] Relay POST ch prefix:', chPrefix, 'status:', response.status);
+		await deleteHandoffBlobBestEffort(handoffBlobUrl(pubky, requestId), ed25519SecretKey);
 		showToast({
 			type: 'success',
 			title: i18n.t('session.success'),
@@ -1146,6 +1289,9 @@ const postPubkyAuthThenLocator = async ({
 	}
 
 	const qrCaps = (caps ?? []).slice();
+	if (!paykitConnectCapSetsEqual(qrCaps, [...HYPERCOLOR_EXPECTED_CAPS])) {
+		return rejectCapsMismatch();
+	}
 	const authUrl = buildPubkyAuthUrl(qrCaps, secret, relay);
 	// Native signer signs Capabilities::from(&url), so URL caps == token caps.
 	const echoedCaps = parsePubkyAuthUrlCaps(authUrl);
@@ -1162,6 +1308,7 @@ const postPubkyAuthThenLocator = async ({
 		secretKey: ed25519SecretKey,
 	});
 	if (authRes.isErr()) {
+		await deleteHandoffBlobBestEffort(handoffBlobUrl(pubky, requestId), ed25519SecretKey);
 		return rejectAuthPostFailed();
 	}
 
@@ -1178,6 +1325,7 @@ const postPubkyAuthThenLocator = async ({
 		homeserver,
 		callback,
 		mode: 'secure_handoff+pubkyauth',
+		ed25519SecretKey,
 	});
 };
 
@@ -1210,7 +1358,7 @@ const completeHandoffCallback = async (
 	// locator to the channel the page is already polling. Never openURL.
 	if (isAllowedHttpsPaykitCallback(callback)) {
 		if (!secret || !relay) {
-			return rejectInvalidCallback();
+			return rejectStaleHypercolorQr();
 		}
 		return await postPubkyAuthThenLocator({
 			pubky: sessionInfo.pubky,
