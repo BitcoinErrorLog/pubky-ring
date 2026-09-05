@@ -203,6 +203,7 @@ import { Linking } from 'react-native';
 import {
 	cancelDeferredHandoffDeletes,
 	handlePaykitConnectAction,
+	normalizeListedHandoffUrl,
 } from '../paykitConnectAction';
 import { InputAction } from '../../inputParser';
 import { signInToHomeserver, getPubkySecretKey, signAndPostAuthToken } from '../../pubky';
@@ -253,7 +254,7 @@ describe('combined https grant event-faithful', () => {
 	const data = {
 		action: InputAction.PaykitConnect as const,
 		params: {
-			deviceId: 'device123',
+			deviceId: 'hypercolor-web-1a070b03cdc',
 			callback,
 			ephemeralPk,
 			caps: GRANT_CAPS,
@@ -332,6 +333,7 @@ describe('combined https grant event-faithful', () => {
 
 	afterEach(() => {
 		cancelDeferredHandoffDeletes();
+		jest.clearAllTimers();
 	});
 
 	afterAll(() => {
@@ -491,8 +493,8 @@ describe('combined https grant event-faithful', () => {
 	});
 
 	it('sweeps stale /pub/paykit.app/v0/handoff/ entries and does not delete other paths', async () => {
-		const staleUrl = 'pubky://test-pubky-z32/pub/paykit.app/v0/handoff/stale-request';
-		const otherFlowUrl = 'pubky://test-pubky-z32/pub/paykit.app/v0/handoff/fresh-request';
+		const staleUrl = `pubky://test-pubky-z32/pub/paykit.app/v0/handoff/${'a'.repeat(64)}`;
+		const otherFlowUrl = `pubky://test-pubky-z32/pub/paykit.app/v0/handoff/${'b'.repeat(64)}`;
 		const keybindingUrl = 'pubky://test-pubky-z32/pub/paykit.app/v0/keybinding';
 		const otherIdentityUrl = 'pubky://other-pubky/pub/paykit.app/v0/handoff/x';
 		(list as jest.Mock).mockResolvedValue(ok([
@@ -521,11 +523,203 @@ describe('combined https grant event-faithful', () => {
 		const options = await flushShow();
 		options.payload.onDecision(true);
 		await pending;
+		await Promise.resolve();
+		await Promise.resolve();
 
 		const deleted = (deleteFile as jest.Mock).mock.calls.map((call) => call[0]);
 		expect(deleted).toContain(staleUrl);
 		expect(deleted).not.toContain(keybindingUrl);
 		expect(deleted).not.toContain(otherIdentityUrl);
 		expect(deleted).not.toContain(otherFlowUrl);
+	});
+
+	it('sweeps future-dated created_at handoff blobs', async () => {
+		const futureUrl = `pubky://test-pubky-z32/pub/paykit.app/v0/handoff/${'c'.repeat(64)}`;
+		(list as jest.Mock).mockResolvedValue(ok([futureUrl]));
+		(get as jest.Mock).mockResolvedValue(ok(JSON.stringify({
+			sb2: 'x',
+			created_at: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
+		})));
+
+		const pending = handlePaykitConnectAction(data, context);
+		const options = await flushShow();
+		options.payload.onDecision(true);
+		await pending;
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect((deleteFile as jest.Mock).mock.calls.map((call) => call[0])).toContain(futureUrl);
+	});
+
+	it('rejects a non-hypercolor-web deviceId on https before the sheet or sign-in', async () => {
+		const pending = handlePaykitConnectAction({
+			...data,
+			params: {
+				...data.params,
+				deviceId: 'bitkit-phone-deadbeef',
+			},
+		}, context);
+		const result = await pending;
+
+		expect(result.isErr()).toBe(true);
+		if (result.isErr()) {
+			expect(String(result.error)).toContain('paykitConnectMalformedRequest');
+		}
+		expect(faithful.shows).toEqual([]);
+		expect(signInToHomeserver).not.toHaveBeenCalled();
+		expect(signAndPostAuthToken).not.toHaveBeenCalled();
+		expect(mockFetch).not.toHaveBeenCalled();
+	});
+
+	it('accepts a bitkit:// deviceId that would be invalid on https', async () => {
+		const pending = handlePaykitConnectAction({
+			action: InputAction.PaykitConnect,
+			params: {
+				deviceId: 'bitkit-phone-deadbeef',
+				callback: 'bitkit://paykit-setup',
+				ephemeralPk,
+			},
+		}, context);
+		const options = await flushShow();
+		options.payload.onDecision(true);
+		const result = await pending;
+
+		expect(result.isOk()).toBe(true);
+		expect(Linking.openURL).toHaveBeenCalled();
+	});
+
+	it('omits device_id from public noise endpoint metadata', async () => {
+		const pending = handlePaykitConnectAction(data, context);
+		const options = await flushShow();
+		options.payload.onDecision(true);
+		await pending;
+
+		const noisePut = (put as jest.Mock).mock.calls.find((call) =>
+			String(call[0]).endsWith('/pub/paykit.app/v0/noise')
+		);
+		expect(noisePut).toBeDefined();
+		const metadata = JSON.parse(noisePut[1].metadata);
+		expect(metadata).not.toHaveProperty('device_id');
+		expect(metadata.provisioned_by).toBe('ring-handoff');
+	});
+
+	it('normalizeListedHandoffUrl rejects traversal and non-hex segments', () => {
+		const pubky = 'alice';
+		const prefix = '/pub/paykit.app/v0/handoff/';
+		expect(normalizeListedHandoffUrl(pubky, `pubky://${pubky}${prefix}..`)).toBeNull();
+		expect(normalizeListedHandoffUrl(pubky, `${prefix}.`)).toBeNull();
+		expect(normalizeListedHandoffUrl(pubky, `${prefix}%2e%2e%2fkeybinding`)).toBeNull();
+		expect(normalizeListedHandoffUrl(pubky, `${prefix}x#frag`)).toBeNull();
+		expect(normalizeListedHandoffUrl(pubky, `${prefix}x%3Fa=b`)).toBeNull();
+		const okId = 'ab'.repeat(32);
+		expect(normalizeListedHandoffUrl(pubky, `pubky://${pubky}${prefix}${okId}`))
+			.toBe(`pubky://${pubky}${prefix}${okId}`);
+	});
+
+	it('cancels deferred deletes so the timer does not fire', async () => {
+		jest.useFakeTimers();
+		try {
+			const pending = handlePaykitConnectAction(data, context);
+			const options = await flushShow();
+			options.payload.onDecision(true);
+			await pending;
+			const handoffUrl =
+				`pubky://test-pubky-z32/pub/paykit.app/v0/handoff/${'i'.repeat(64)}`;
+			cancelDeferredHandoffDeletes('test-pubky-z32');
+			await jest.advanceTimersByTimeAsync(5 * 60 * 1000);
+			expect(deleteFile).not.toHaveBeenCalledWith(handoffUrl, 'b'.repeat(64));
+		} finally {
+			cancelDeferredHandoffDeletes();
+			jest.useRealTimers();
+		}
+	});
+
+	it('does not cancel another identity\'s deferred delete', async () => {
+		jest.useFakeTimers();
+		try {
+			const pending = handlePaykitConnectAction(data, context);
+			const options = await flushShow();
+			options.payload.onDecision(true);
+			await pending;
+			const handoffUrl =
+				`pubky://test-pubky-z32/pub/paykit.app/v0/handoff/${'i'.repeat(64)}`;
+			cancelDeferredHandoffDeletes('other-pubky');
+			await jest.advanceTimersByTimeAsync(5 * 60 * 1000);
+			expect(deleteFile).toHaveBeenCalledWith(handoffUrl, 'b'.repeat(64));
+		} finally {
+			cancelDeferredHandoffDeletes();
+			jest.useRealTimers();
+		}
+	});
+
+	it('deletes this requestId when locator POST returns non-2xx', async () => {
+		mockFetch
+			.mockResolvedValueOnce({ ok: true, status: 200, type: 'basic' })
+			.mockResolvedValueOnce({ ok: false, status: 500, type: 'basic' });
+		const pending = handlePaykitConnectAction(data, context);
+		const options = await flushShow();
+		options.payload.onDecision(true);
+		await pending;
+
+		const handoffUrl =
+			`pubky://test-pubky-z32/pub/paykit.app/v0/handoff/${'i'.repeat(64)}`;
+		expect(deleteFile).toHaveBeenCalledWith(handoffUrl, 'b'.repeat(64));
+		expect(deleteFile.mock.calls.filter((call) => call[0] === handoffUrl)).toHaveLength(1);
+	});
+
+	it('deletes this requestId when locator POST throws', async () => {
+		mockFetch
+			.mockResolvedValueOnce({ ok: true, status: 200, type: 'basic' })
+			.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+		const pending = handlePaykitConnectAction(data, context);
+		const options = await flushShow();
+		options.payload.onDecision(true);
+		await pending;
+
+		const handoffUrl =
+			`pubky://test-pubky-z32/pub/paykit.app/v0/handoff/${'i'.repeat(64)}`;
+		expect(deleteFile).toHaveBeenCalledWith(handoffUrl, 'b'.repeat(64));
+		expect(deleteFile.mock.calls.filter((call) => call[0] === handoffUrl)).toHaveLength(1);
+	});
+
+	it('deletes this requestId when granted caps mismatch after PUT', async () => {
+		(signAndPostAuthToken as jest.Mock).mockResolvedValue(ok(['/pub/paykit/:rw']));
+		const pending = handlePaykitConnectAction(data, context);
+		const options = await flushShow();
+		options.payload.onDecision(true);
+		await pending;
+
+		const handoffUrl =
+			`pubky://test-pubky-z32/pub/paykit.app/v0/handoff/${'i'.repeat(64)}`;
+		expect(deleteFile).toHaveBeenCalledWith(handoffUrl, 'b'.repeat(64));
+		expect(deleteFile.mock.calls.filter((call) => call[0] === handoffUrl)).toHaveLength(1);
+	});
+
+	it('schedules a deferred delete of this requestId after bitkit:// openURL', async () => {
+		jest.useFakeTimers();
+		try {
+			const pending = handlePaykitConnectAction({
+				action: InputAction.PaykitConnect,
+				params: {
+					deviceId: 'device123',
+					callback: 'bitkit://paykit-setup',
+					ephemeralPk,
+				},
+			}, context);
+			const options = await flushShow();
+			options.payload.onDecision(true);
+			await pending;
+
+			const handoffUrl =
+				`pubky://test-pubky-z32/pub/paykit.app/v0/handoff/${'i'.repeat(64)}`;
+			expect(Linking.openURL).toHaveBeenCalled();
+			expect(deleteFile).not.toHaveBeenCalledWith(handoffUrl, 'b'.repeat(64));
+			await jest.advanceTimersByTimeAsync(5 * 60 * 1000);
+			expect(deleteFile).toHaveBeenCalledWith(handoffUrl, 'b'.repeat(64));
+			expect(deleteFile.mock.calls.filter((call) => call[0] === handoffUrl)).toHaveLength(1);
+		} finally {
+			cancelDeferredHandoffDeletes();
+			jest.useRealTimers();
+		}
 	});
 });

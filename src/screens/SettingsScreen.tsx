@@ -28,6 +28,7 @@ import {
 } from '../store/slices/settingsSlice.ts';
 import { wipeKeychain } from '../utils/keychain.ts';
 import { resetPubkys } from '../store/slices/pubkysSlice.ts';
+import { cancelDeferredHandoffDeletes } from '../utils/handoffDeleteTimers';
 import { useTranslation } from 'react-i18next';
 import { SheetManager } from 'react-native-actions-sheet';
 import { useInputHandler } from '../hooks/useInputHandler.ts';
@@ -123,6 +124,7 @@ const SettingsScreen = ({ navigation, route }: Props): ReactElement => {
 				{
 					text: t('common.yes'),
 					onPress: (): void => {
+						cancelDeferredHandoffDeletes();
 						wipeKeychain().then();
 						dispatch(resetSettings());
 						dispatch(resetPubkys());

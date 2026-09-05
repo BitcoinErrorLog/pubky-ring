@@ -197,6 +197,7 @@ describe('paykitConnectAction', () => {
 
 	const createHttpsActionData = (params: Partial<PaykitConnectParams> = {}): PaykitConnectActionData =>
 		createActionData({
+			deviceId: 'hypercolor-web-1a070b03cdc',
 			callback: mockHttpsCallback,
 			secret: HYPERCOLOR_AUTH_SECRET,
 			relay: HYPERCOLOR_AUTH_RELAY,
@@ -277,6 +278,7 @@ describe('paykitConnectAction', () => {
 
 	afterEach(() => {
 		cancelDeferredHandoffDeletes();
+		jest.clearAllTimers();
 	});
 
 	afterAll(() => {

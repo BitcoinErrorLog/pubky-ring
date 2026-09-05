@@ -182,7 +182,7 @@ describe('native auth contract (real JS wrapper)', () => {
 	const data = {
 		action: InputAction.PaykitConnect as const,
 		params: {
-			deviceId: 'device123',
+			deviceId: 'hypercolor-web-1a070b03cdc',
 			callback,
 			ephemeralPk,
 			caps: GRANT_CAPS,
@@ -241,6 +241,7 @@ describe('native auth contract (real JS wrapper)', () => {
 
 	afterEach(() => {
 		cancelDeferredHandoffDeletes();
+		jest.clearAllTimers();
 	});
 
 	afterAll(() => {

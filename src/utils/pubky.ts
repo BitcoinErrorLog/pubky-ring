@@ -29,6 +29,7 @@ import {
 	setPubkyData,
 	setSignedUp,
 } from '../store/slices/pubkysSlice';
+import { cancelDeferredHandoffDeletes } from './handoffDeleteTimers';
 import { Result, err, ok } from '@synonymdev/result';
 import { defaultProfile, defaultPubkyState } from '../store/shapes/pubky';
 import { showToast } from './helpers.ts';
@@ -401,6 +402,7 @@ export const deletePubky = async (
 	dispatch: Dispatch
 ): Promise<Result<string>> => {
 	try {
+		cancelDeferredHandoffDeletes(pubky);
 		dispatch(removePubky(pubky));
 		// Don't await this, we don't want to block the UI for devices with slower Keychains.
 		resetKeychainValue({ key: pubky }).then((response) => {
@@ -573,6 +575,7 @@ export const signInToHomeserver = async ({
 };
 
 export const signOutOfHomeserver = async (pubky: string, sessionSecret: string, dispatch: Dispatch): Promise<void> => {
+	cancelDeferredHandoffDeletes(pubky);
 	const secretKeyRes = await getPubkySecretKey(pubky);
 	if (secretKeyRes.isErr()) {
 		return;

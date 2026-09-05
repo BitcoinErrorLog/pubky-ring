@@ -151,3 +151,8 @@ global.console = {
 	error: jest.fn(),
 	log: jest.fn(),
 };
+
+afterEach(() => {
+	const { cancelDeferredHandoffDeletes } = require('./src/utils/handoffDeleteTimers');
+	cancelDeferredHandoffDeletes();
+});
