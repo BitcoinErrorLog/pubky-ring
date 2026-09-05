@@ -57,12 +57,14 @@ import {
 	sb2Encrypt,
 	sb2Sign,
 	sb2GenerateContextId,
+	computeInboxKid as nativeComputeInboxKid,
 } from '../PubkyNoiseModule';
 
 /**
  * Callbacks Ring is allowed to open after paykit-connect.
  *
- * Custom schemes must stay aligned with AndroidManifest.xml <queries>.
+ * Custom schemes must stay aligned with AndroidManifest.xml <queries>
+ * and ios/pubkyring/Info.plist LSApplicationQueriesSchemes.
  * Arbitrary `https` is still rejected: an attacker QR could otherwise
  * redirect the handoff locator (pubky + request_id + homeserver) to an
  * attacker URL.
@@ -71,8 +73,11 @@ import {
  * Hypercolor web endpoints (origin + pathname). Host is matched
  * case-insensitively with no port, userinfo, or trailing-dot tricks;
  * pathname must be exactly `/ring-callback` (no slash variants, `..`,
- * or encodings); fragments are rejected. Query is allowed (`ch`) and
- * cannot change origin or path. Exact-match origin+path keeps the
+ * or encodings); fragments are rejected. Query is required (`ch`) and
+ * cannot change origin or path. A queryless callback is rejected here
+ * and on-device by React Native's URL parser (it appends `/`, so the
+ * path becomes `/ring-callback/`); that reject is acceptable because
+ * Hypercolor always sends `?ch=`. Exact-match origin+path keeps the
  * redirect concern closed because the locator can only land on those
  * first-party pages.
  */
@@ -103,10 +108,22 @@ const parseCallbackScheme = (callback: string): string | null => {
  * First-party https callbacks only. Uses the platform URL parser, then
  * re-checks the raw authority and path so normalization cannot hide
  * port, userinfo, trailing-dot, `..`, or encoded-slash tricks.
+ *
+ * Protocol comparison is case-insensitive so Node's WHATWG URL and
+ * React Native 0.83's regex URL accept the same Hypercolor shapes
+ * (`https://…/ring-callback?ch=`). RN's constructor never throws, its
+ * `port` regex matches a colon anywhere including the query, and it
+ * appends `/` to a queryless URL — the raw-authority check and the
+ * required `?` keep those parser quirks from changing the allowlist.
  */
-const isAllowedHttpsPaykitCallback = (callback: string): boolean => {
+export const isAllowedHttpsPaykitCallback = (callback: string): boolean => {
 	const trimmed = callback.trim();
 	if (trimmed.includes('#')) {
+		return false;
+	}
+	// Hypercolor always sends `?ch=`. Rejecting a queryless callback
+	// matches on-device RN behavior (trailing `/` → path mismatch).
+	if (!trimmed.includes('?')) {
 		return false;
 	}
 
@@ -117,24 +134,13 @@ const isAllowedHttpsPaykitCallback = (callback: string): boolean => {
 		return false;
 	}
 
-	if (parsed.protocol !== 'https:') {
+	if (parsed.protocol.toLowerCase() !== 'https:') {
 		return false;
 	}
 	if (parsed.username !== '' || parsed.password !== '') {
 		return false;
 	}
-	if (parsed.port !== '') {
-		return false;
-	}
 	if (parsed.hash !== '') {
-		return false;
-	}
-
-	const host = parsed.hostname.toLowerCase();
-	if (host.endsWith('.') || !ALLOWED_HTTPS_CALLBACK_HOSTS.has(host)) {
-		return false;
-	}
-	if (parsed.pathname !== ALLOWED_HTTPS_CALLBACK_PATHNAME) {
 		return false;
 	}
 
@@ -150,7 +156,26 @@ const isAllowedHttpsPaykitCallback = (callback: string): boolean => {
 	if (rawAuthority.endsWith('.')) {
 		return false;
 	}
-	if (rawAuthority.toLowerCase() !== host) {
+	// RN's port getter matches `:digits` in the query (`?ch=x:443`).
+	// Only reject when the authority itself (already excluding `?`) has a port.
+	if (parsed.port !== '' && rawAuthority.includes(':')) {
+		return false;
+	}
+
+	const host = parsed.hostname.toLowerCase();
+	const effectiveHost = host || rawAuthority.toLowerCase();
+	if (effectiveHost.endsWith('.') || !ALLOWED_HTTPS_CALLBACK_HOSTS.has(effectiveHost)) {
+		return false;
+	}
+	if (rawAuthority.toLowerCase() !== effectiveHost) {
+		return false;
+	}
+	// RN's hostname/pathname regexes are scheme-case-sensitive; uppercase
+	// `HTTPS:` yields hostname "" and pathname "/". Trust raw path then.
+	if (
+		parsed.pathname !== ALLOWED_HTTPS_CALLBACK_PATHNAME &&
+		parsed.pathname !== '/'
+	) {
 		return false;
 	}
 	if (rawPath !== ALLOWED_HTTPS_CALLBACK_PATHNAME) {
@@ -763,7 +788,6 @@ const handleSecureHandoff = async ({
  * Compute inbox_kid from inbox public key (SHA256 first 16 bytes)
  */
 const computeInboxKid = async (inboxPkHex: string): Promise<string> => {
-	const { computeInboxKid: nativeComputeInboxKid } = await import('../PubkyNoiseModule');
 	return nativeComputeInboxKid(inboxPkHex);
 };
 

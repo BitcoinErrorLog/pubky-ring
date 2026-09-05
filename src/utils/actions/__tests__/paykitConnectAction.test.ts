@@ -271,6 +271,7 @@ describe('paykitConnectAction', () => {
 			'https://hypercolor.app/ring-callback?ch=abc',
 			'https://www.hypercolor.app/ring-callback?ch=abc',
 			'HTTPS://hypercolor.app/ring-callback?ch=abc',
+			'https://hypercolor.app/ring-callback?ch=x:443',
 		])('should accept first-party https callback %s', async (callback) => {
 			const data = createActionData({ callback });
 
@@ -282,9 +283,16 @@ describe('paykitConnectAction', () => {
 					description: 'session.invalidCallback',
 				})
 			);
+			expect(Linking.openURL).toHaveBeenCalledWith(
+				expect.stringMatching(
+					/^https:\/\/(www\.)?hypercolor\.app\/ring-callback\?ch=[^&]+&pubky=[^&]+&request_id=[^&]+&mode=secure_handoff/i
+				)
+			);
 		});
 
 		it.each([
+			'https://hypercolor.app/ring-callback',
+			'https://www.hypercolor.app/ring-callback',
 			'http://hypercolor.app/ring-callback',
 			'https://hypercolor.app.evil.com/ring-callback',
 			'https://evil.com/ring-callback',

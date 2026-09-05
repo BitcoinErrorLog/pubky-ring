@@ -14,7 +14,7 @@ module.exports = {
 	testPathIgnorePatterns: [
 		'/node_modules/',
 		'/e2e/',
-		'/\\._',
+		'/\\._[^/]*$',
 	],
 	// Test match pattern - only test __tests__ directories
 	testMatch: [

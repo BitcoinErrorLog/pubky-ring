@@ -46,6 +46,8 @@
 	<array>
 		<string>bitkit</string>
 		<string>paykit</string>
+		<string>atomicity</string>
+		<string>hypercolor</string>
 	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
