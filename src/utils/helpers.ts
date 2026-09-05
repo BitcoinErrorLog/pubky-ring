@@ -151,13 +151,19 @@ export type ToastOptions = {
     autoHide?: boolean;
     visibilityTime?: number;
     onPress?: () => void;
+    kind?: string;
 };
+
+/** Kind for the https paykit-connect locator POST failure toast. */
+export const PAYKIT_CONNECT_RELAY_FAILURE_TOAST = 'paykit-connect-relay-failed';
 
 const defaultOptions = {
 	autoHide: true,
 	visibilityTime: 4000,
 	topOffset: Platform.OS === 'ios' ? 40 : 0,
 };
+
+let lastToastKind: string | undefined;
 
 export const showToast = ({
 	type,
@@ -166,7 +172,10 @@ export const showToast = ({
 	autoHide,
 	visibilityTime,
 	onPress,
-}: ToastOptions): void => {
+	kind,
+}: ToastOptions): string => {
+	const nextKind = kind ?? 'generic';
+	lastToastKind = nextKind;
 	Toast.show({
 		...defaultOptions,
 		type,
@@ -177,10 +186,21 @@ export const showToast = ({
 		visibilityTime,
 		onPress,
 	});
+	return nextKind;
 };
 
 export const hideToast = (): void => {
 	Toast.hide();
+	lastToastKind = undefined;
+};
+
+/** Hide only if the currently tracked toast is `kind` (offline/online survive). */
+export const hideToastIfKind = (kind: string): void => {
+	if (lastToastKind !== kind) {
+		return;
+	}
+	Toast.hide();
+	lastToastKind = undefined;
 };
 
 export const shareData = async (data: string): Promise<void> => {

@@ -1,3 +1,5 @@
+import { parseQueryPairs } from './queryParams';
+
 /**
  * Paykit-connect `caps` query → ConfirmAuth-shaped { path, permission }.
  *
@@ -46,6 +48,28 @@ export const serializePaykitConnectCaps = (caps: string[] | undefined): string =
 		return '';
 	}
 	return caps.map(canonicalizePaykitConnectCap).join(',');
+};
+
+/**
+ * Echo-parse a `pubkyauth:///` URL's `caps` query with the same first-`=`
+ * pair decoder Ring uses for deeplink QRs (`parseQueryPairs`). Native
+ * `parseAuthUrl` reads the same query; the Rust signer signs
+ * `Capabilities::from(&url)`, so URL caps == token caps.
+ */
+export const parsePubkyAuthUrlCaps = (authUrl: string): string[] | null => {
+	const trimmed = authUrl.trim();
+	if (!trimmed.toLowerCase().startsWith('pubkyauth:')) {
+		return null;
+	}
+	const queryStart = trimmed.indexOf('?');
+	if (queryStart === -1) {
+		return [];
+	}
+	const caps = parseQueryPairs(trimmed.slice(queryStart)).get('caps');
+	if (caps === null || caps === '') {
+		return [];
+	}
+	return caps.split(',').map((item) => item.trim()).filter(Boolean);
 };
 
 export const paykitConnectCapSetsEqual = (a: string[], b: string[]): boolean => {

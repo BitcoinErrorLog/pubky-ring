@@ -108,4 +108,30 @@ describe('performAuth', () => {
 		expect(logged).not.toContain(LEAKY);
 		errorSpy.mockRestore();
 	});
+
+	it('treats native Authorization success as success', async () => {
+		(auth as jest.Mock).mockResolvedValue(ok('Authorization success'));
+
+		const result = await performAuth({
+			pubky: 'pk:test',
+			authUrl: 'pubkyauth:///?secret=abc123',
+			dispatch,
+		});
+
+		expect(result.isOk()).toBe(true);
+	});
+
+	it('treats wrapper ok(Authorization failure) as failure, not success', async () => {
+		(auth as jest.Mock).mockResolvedValue(ok('Authorization failure: relay unreachable'));
+		const { signIn } = require('@synonymdev/react-native-pubky');
+		(signIn as jest.Mock).mockResolvedValue(ok({}));
+
+		const result = await performAuth({
+			pubky: 'pk:test',
+			authUrl: 'pubkyauth:///?secret=abc123',
+			dispatch,
+		});
+
+		expect(result.isErr()).toBe(true);
+	});
 });

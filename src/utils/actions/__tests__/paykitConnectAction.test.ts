@@ -108,6 +108,8 @@ jest.mock('../../constants', () => ({
 jest.mock('../../helpers', () => ({
 	showToast: jest.fn(),
 	hideToast: jest.fn(),
+	hideToastIfKind: jest.fn(),
+	PAYKIT_CONNECT_RELAY_FAILURE_TOAST: 'paykit-connect-relay-failed',
 	sleep: jest.fn(() => Promise.resolve()),
 }));
 
@@ -220,7 +222,7 @@ describe('paykitConnectAction', () => {
 			createOkResult({ secretKey: mockSecretKey, mnemonic: 'test mnemonic' })
 		);
 		(signAndPostAuthToken as jest.Mock).mockResolvedValue(
-			createOkResult(HYPERCOLOR_GRANT_CAPS)
+			createOkResult([])
 		);
 		(deriveX25519ForDeviceEpoch as jest.Mock).mockResolvedValue({
 			publicKey: 'c'.repeat(64),
@@ -1023,7 +1025,7 @@ describe('paykitConnectAction', () => {
 			const order: string[] = [];
 			(signAndPostAuthToken as jest.Mock).mockImplementation(async () => {
 				order.push('auth');
-				return createOkResult(HYPERCOLOR_GRANT_CAPS);
+				return createOkResult([]);
 			});
 			mockFetch.mockImplementation(async () => {
 				order.push('locator');

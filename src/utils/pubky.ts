@@ -606,10 +606,50 @@ export const truncatePubky = (pubky: string): string => {
 
 const TIMEOUT_MS = 20000;
 
+/** Exact native success payload (`create_response_vector(false, …)`). */
+const NATIVE_AUTH_SUCCESS = 'Authorization success';
+
+/**
+ * Map the JS wrapper's `auth()` Result to Ring's contract.
+ *
+ * Native `auth()` resolves `["false","Authorization success"]` or
+ * `["true","Authorization failure: <reason>"]`. The wrapper checks
+ * `res[0] === 'error'` (never matches `"true"`/`"false"`) and therefore
+ * returns `ok(string)` on BOTH outcomes. Inspect the string here.
+ *
+ * Success: granted caps are unknown (native does not return them) → `ok([])`.
+ * Failure / anything else: `err` so callers must not POST the locator.
+ *
+ * The native POST follows reqwest's default redirects (≤10). That is bounded
+ * here because `assertAllowedAuthRelay` pins the initial host to
+ * `httprelay.pubky.app` over TLS — only that relay can 3xx, and the
+ * ciphertext remains decryptable only by the QR author.
+ */
+export const inspectNativeAuthWrapperPayload = (value: unknown): Result<string[]> => {
+	if (value === NATIVE_AUTH_SUCCESS) {
+		return ok([]);
+	}
+	const sanitized = sanitizeAuthError(
+		typeof value === 'string' ? value : 'Authorization failure',
+		'process',
+	);
+	logAuthError(sanitized.code);
+	return err(sanitized.message);
+};
+
+const resultFromNativeAuthCall = (authRes: Result<unknown>): Result<string[]> => {
+	if (authRes.isErr()) {
+		const sanitized = sanitizeAuthError(authRes.error, 'process');
+		logAuthError(sanitized.code);
+		return err(sanitized.message);
+	}
+	return inspectNativeAuthWrapperPayload(authRes.value);
+};
+
 /**
  * Sign an AuthToken for `pubkyauth://` and POST ciphertext to the auth
  * channel. Used by combined paykit-connect (no ConfirmAuth sheet).
- * Returns the native `auth()` payload so callers can assert granted caps.
+ * Success returns `[]` (granted caps unknown). Failure is `err`.
  */
 export const signAndPostAuthToken = async ({
 	authUrl,
@@ -619,20 +659,7 @@ export const signAndPostAuthToken = async ({
 	secretKey: string;
 }): Promise<Result<string[]>> => {
 	try {
-		const authRes = await auth(authUrl, secretKey);
-		if (authRes.isErr()) {
-			const sanitized = sanitizeAuthError(authRes.error, 'process');
-			logAuthError(sanitized.code);
-			return err(sanitized.message);
-		}
-		const value = authRes.value;
-		if (Array.isArray(value)) {
-			return ok(value);
-		}
-		if (typeof value === 'string') {
-			return ok(value.split(',').map((item) => item.trim()).filter(Boolean));
-		}
-		return ok([]);
+		return resultFromNativeAuthCall(await auth(authUrl, secretKey));
 	} catch (error: unknown) {
 		const sanitized = sanitizeAuthError(error, 'failed');
 		logAuthError(sanitized.code);
@@ -669,7 +696,9 @@ export const performAuth = async ({
 				});
 			}
 			const secretKey = secretKeyRes.value.secretKey;
-			const authRes = await auth(authUrl, secretKey);
+			// Same wrapper as signAndPostAuthToken: native failure is ok(string),
+			// not isErr(). Inspect the payload or this path treats failure as success.
+			const authRes = resultFromNativeAuthCall(await auth(authUrl, secretKey));
 			if (authRes.isErr()) {
 				const signInRes = await signInToHomeserver({
 					pubky,
@@ -682,11 +711,9 @@ export const performAuth = async ({
 					logAuthError(sanitized.code);
 					return err(sanitized.message);
 				}
-				const authRetryRes = await auth(authUrl, secretKey);
+				const authRetryRes = resultFromNativeAuthCall(await auth(authUrl, secretKey));
 				if (authRetryRes.isErr()) {
-					const sanitized = sanitizeAuthError(authRetryRes.error, 'process');
-					logAuthError(sanitized.code);
-					return err(sanitized.message);
+					return err(authRetryRes.error.message);
 				}
 			}
 			return ok('success');

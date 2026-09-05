@@ -45,7 +45,11 @@ import { put as originalPut } from '@synonymdev/react-native-pubky';
 import { InputAction, PaykitConnectParams } from '../inputParser';
 import { ActionContext } from '../inputRouter';
 import { signInToHomeserver, getPubkySecretKey, signAndPostAuthToken } from '../pubky';
-import { showToast, hideToast } from '../helpers';
+import {
+	showToast,
+	hideToastIfKind,
+	PAYKIT_CONNECT_RELAY_FAILURE_TOAST,
+} from '../helpers';
 import { getErrorMessage } from '../errorHandler';
 import { getPubkyDataFromStore } from '../store-helpers';
 import { DEFAULT_HOMESERVER } from '../constants';
@@ -60,6 +64,7 @@ import { requestPaykitConnectConfirmation } from '../confirmPaykitConnect';
 import {
 	formatPaykitConnectDestination,
 	parsePaykitConnectCaps,
+	parsePubkyAuthUrlCaps,
 	paykitConnectCapSetsEqual,
 	serializePaykitConnectCaps,
 } from '../paykitConnectCaps';
@@ -534,7 +539,7 @@ export const handlePaykitConnectAction = async (
 	const { pubky, dispatch } = context;
 	const { deviceId, callback, includeEpoch1 = true, ephemeralPk, secret, relay } = data.params;
 
-	hideToast();
+	hideToastIfKind(PAYKIT_CONNECT_RELAY_FAILURE_TOAST);
 
 	// Paykit connect requires a pubky
 	if (!pubky) {
@@ -1033,6 +1038,7 @@ const rejectRelayPostFailed = (chPrefix: string, status: string | number): Resul
 		type: 'error',
 		title: i18n.t('common.error'),
 		description: i18n.t('session.webHandoffRelayFailed'),
+		kind: PAYKIT_CONNECT_RELAY_FAILURE_TOAST,
 	});
 	return err('Relay post failed');
 };
@@ -1141,6 +1147,16 @@ const postPubkyAuthThenLocator = async ({
 
 	const qrCaps = (caps ?? []).slice();
 	const authUrl = buildPubkyAuthUrl(qrCaps, secret, relay);
+	// Native signer signs Capabilities::from(&url), so URL caps == token caps.
+	const echoedCaps = parsePubkyAuthUrlCaps(authUrl);
+	if (echoedCaps === null || !paykitConnectCapSetsEqual(echoedCaps, qrCaps)) {
+		return rejectCapsMismatch();
+	}
+	const urlCaps = serializePaykitConnectCaps(qrCaps).split(',').filter(Boolean);
+	if (!paykitConnectCapSetsEqual(urlCaps, qrCaps)) {
+		return rejectCapsMismatch();
+	}
+
 	const authRes = await signAndPostAuthToken({
 		authUrl,
 		secretKey: ed25519SecretKey,
@@ -1150,10 +1166,8 @@ const postPubkyAuthThenLocator = async ({
 	}
 
 	const granted = grantedCapsFromAuthResult(authRes.value);
-	const urlCaps = serializePaykitConnectCaps(qrCaps).split(',').filter(Boolean);
-	if (!paykitConnectCapSetsEqual(urlCaps, qrCaps)) {
-		return rejectCapsMismatch();
-	}
+	// Native auth() does not return granted caps (success → []). Skip that
+	// compare when unknown; URL vs sheet self-check above remains.
 	if (granted.length > 0 && !paykitConnectCapSetsEqual(granted, qrCaps)) {
 		return rejectCapsMismatch();
 	}

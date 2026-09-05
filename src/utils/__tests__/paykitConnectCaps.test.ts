@@ -1,6 +1,7 @@
 import {
 	formatPaykitConnectDestination,
 	parsePaykitConnectCaps,
+	parsePubkyAuthUrlCaps,
 	paykitConnectCapSetsEqual,
 } from '../paykitConnectCaps';
 
@@ -25,6 +26,16 @@ describe('parsePaykitConnectCaps', () => {
 			['/pub/paykit/:wr', '/pub/hypercolor.app/v1/:rw'],
 			['/pub/hypercolor.app/v1/:rw', '/pub/paykit/:rw'],
 		)).toBe(true);
+	});
+
+	it('echo-parses pubkyauth URL caps with parseQueryPairs', () => {
+		const caps = ['/pub/paykit/:rw', '/pub/hypercolor.app/v1/:rw'];
+		const url =
+			'pubkyauth:///?caps=' +
+			encodeURIComponent('/pub/paykit/:rw,/pub/hypercolor.app/v1/:rw') +
+			'&secret=x&relay=' +
+			encodeURIComponent('https://httprelay.pubky.app/link/');
+		expect(paykitConnectCapSetsEqual(parsePubkyAuthUrlCaps(url) ?? [], caps)).toBe(true);
 	});
 });
 

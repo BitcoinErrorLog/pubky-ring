@@ -162,6 +162,8 @@ jest.mock('../../constants', () => ({
 jest.mock('../../helpers', () => ({
 	showToast: jest.fn(),
 	hideToast: jest.fn(),
+	hideToastIfKind: jest.fn(),
+	PAYKIT_CONNECT_RELAY_FAILURE_TOAST: 'paykit-connect-relay-failed',
 	sleep: jest.fn(() => Promise.resolve()),
 }));
 
@@ -296,7 +298,7 @@ describe('combined https grant event-faithful', () => {
 				if (response.status < 200 || response.status >= 300) {
 					return err('auth failed');
 				}
-				return ok(GRANT_CAPS);
+				return ok([]);
 			} catch {
 				return err('auth failed');
 			}
