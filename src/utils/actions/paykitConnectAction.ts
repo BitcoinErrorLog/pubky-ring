@@ -18,9 +18,10 @@
  * 3. Ring encrypts handoff payload using SB2 format to Bitkit's ephemeral X25519 key
  * 4. Ring signs the SB2 envelope with owner's Ed25519 key for authenticity
  * 5. Ring stores encrypted envelope at /pub/paykit.app/v0/handoff/{request_id}
- * 6. Ring publishes KeyBinding at /pub/paykit.app/v0/keybinding (contains InboxKey, TransportKey, AppKey)
- * 7. Ring publishes Noise endpoint at /pub/paykit.app/v0/noise (for discoverability)
- * 8. Native custom-scheme callback: Ring opens bitkit://… / hypercolor://… with
+ * 6. Bitkit/legacy custom schemes: Ring publishes KeyBinding + Noise endpoint
+ *    before the callback. Hypercolor combined (https / hypercolor://): those
+ *    PUTs happen only after the auth POST and openURL/relay POST succeed.
+ * 7. Native custom-scheme callback: Ring opens bitkit://… / hypercolor://… with
  *    pubky + request_id + homeserver (same-device). Combined `hypercolor://`
  *    requires secret+relay: canOpenURL, then scoped AuthToken POST, then openURL
  *    with mode=secure_handoff+pubkyauth; SB2 omits session_secret. A hypercolor://
@@ -30,8 +31,8 @@
  *    four public locator fields to httprelay (HYPERCOLOR_HTTP_RELAY_BASE/hc-<ch>)
  *    so the page that is already polling that channel can continue on its own
  *    device. Ring cannot know which device served a web QR.
- * 9. Bitkit/Hypercolor fetches envelope from homeserver, decrypts with ephemeral secret key
- * 10. Bitkit extracts InboxKey, AppKey, noise_seed for local use
+ * 8. Bitkit/Hypercolor fetches envelope from homeserver, decrypts with ephemeral secret key
+ * 9. Bitkit extracts InboxKey, AppKey, noise_seed for local use
  *
  * SECURITY PROPERTIES:
  * - NO secrets in callback URL
@@ -154,14 +155,15 @@ const HANDOFF_TTL_MS = HANDOFF_TTL_SECONDS * 1000;
 const HANDOFF_SWEEP_LIMIT = 20;
 const HANDOFF_DELETE_TIMEOUT_MS = 5_000;
 const HANDOFF_REQUEST_ID_RE = /^[0-9a-f]{64}$/i;
+// Per-scheme deviceId gates (intake, before sheet). Max length is part of
+// the regex. Hypercolor web/mobile: `hypercolor-web-` / `hypercolor-` plus
+// 1–16 lowercase hex (`Date.now().toString(16)`). Bitkit/paykit/atomicity:
+// 1–64 of [A-Za-z0-9._-], first char alphanumeric, not Hypercolor-shaped.
 const HYPERCOLOR_WEB_DEVICE_ID_RE = /^hypercolor-web-[0-9a-f]{1,16}$/;
-// Hypercolor mobile Welcome/AwaitingRing: `hypercolor-${Date.now().toString(16)}`.
-const HYPERCOLOR_MOBILE_DEVICE_ID_RE = /^hypercolor-[0-9a-f]+$/;
-// Bitkit (and tests) send unprefixed ids. Bound charset/length and reject
-// Hypercolor-shaped ids so an attacker QR cannot derive another app's keys.
+const HYPERCOLOR_MOBILE_DEVICE_ID_RE = /^hypercolor-[0-9a-f]{1,16}$/;
 const BITKIT_DEVICE_ID_RE = /^(?!hypercolor(?:-web)?-)[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const PAYKIT_DEVICE_ID_RE = BITKIT_DEVICE_ID_RE;
-const ATOMICITY_DEVICE_ID_RE = /^(?!hypercolor(?:-web)?-)[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const ATOMICITY_DEVICE_ID_RE = BITKIT_DEVICE_ID_RE;
 const APPCERT_TTL_SECONDS = 365 * 24 * 60 * 60;
 
 export { cancelDeferredHandoffDeletes };
@@ -954,6 +956,66 @@ export const handlePaykitConnectAction = async (
 	}
 };
 
+const publishPaykitDiscoveryDocs = async ({
+	pubky,
+	ed25519SecretKey,
+	inboxPublicKey,
+	transportPublicKey,
+	appKey,
+	nowSeconds,
+}: {
+	pubky: string;
+	ed25519SecretKey: string;
+	inboxPublicKey: string;
+	transportPublicKey: string;
+	appKey: HandoffPayload['app_key'];
+	nowSeconds: number;
+}): Promise<void> => {
+	const keybindingPath = `pubky://${pubky}/pub/paykit.app/v0/keybinding`;
+	const keybinding = {
+		inbox_keys: [{
+			inbox_kid: await computeInboxKid(inboxPublicKey),
+			x25519_pub: inboxPublicKey,
+		}],
+		transport_keys: [{
+			x25519_pub: transportPublicKey,
+		}],
+		app_keys: appKey ? [{
+			cert_id: appKey.cert_id,
+			ed25519_pub: appKey.ed25519_pk,
+		}] : [],
+	};
+
+	const keybindingResult = await put(keybindingPath, keybinding, ed25519SecretKey);
+	if (keybindingResult.isErr()) {
+		console.warn(
+			'[PaykitConnectAction] Failed to publish KeyBinding:',
+			getErrorMessage(keybindingResult.error, 'Unknown error')
+		);
+	} else {
+		console.log('[PaykitConnectAction] Published KeyBinding at:', keybindingPath);
+	}
+
+	const noiseEndpointPath = `pubky://${pubky}/pub/paykit.app/v0/noise`;
+	const noiseEndpoint = {
+		host: 'pending',
+		port: 0,
+		pubkey: transportPublicKey,
+		metadata: JSON.stringify({
+			provisioned_by: 'ring-handoff',
+			created_at: nowSeconds,
+		}),
+	};
+
+	const noiseResult = await put(noiseEndpointPath, noiseEndpoint, ed25519SecretKey);
+	if (noiseResult.isErr()) {
+		console.warn(
+			'[PaykitConnectAction] Failed to publish Noise endpoint:',
+			getErrorMessage(noiseResult.error, 'Unknown error')
+		);
+	}
+};
+
 /**
  * Secure handoff: Encrypt and store payload on homeserver, return only request_id
  *
@@ -963,8 +1025,8 @@ export const handlePaykitConnectAction = async (
  * 3. Encrypts payload to Bitkit's ephemeral X25519 key using SB2
  * 4. Signs envelope with owner's Ed25519 key
  * 5. Stores as {"sb2": base64} at /pub/paykit.app/v0/handoff/{request_id}
- * 6. Publishes KeyBinding with InboxKey, TransportKey, AppKey for discoverability
- * 7. Publishes Noise endpoint for encrypted messaging
+ * 6. Bitkit: publishes KeyBinding + Noise before callback. Hypercolor combined:
+ *    publishes those only after auth POST + openURL/relay POST succeed.
  */
 const handleSecureHandoff = async ({
 	pubky,
@@ -1103,6 +1165,46 @@ const handleSecureHandoff = async ({
 	const payloadJson = JSON.stringify(payload);
 	const payloadHex = stringToHex(payloadJson);
 
+	const finishHandoffAfterBlob = async (): Promise<Result<string>> => {
+		if (!omitRootSessionSecret) {
+			await publishPaykitDiscoveryDocs({
+				pubky,
+				ed25519SecretKey,
+				inboxPublicKey: inboxKeypair.publicKey,
+				transportPublicKey: keypair0.publicKey,
+				appKey,
+				nowSeconds,
+			});
+		}
+		const callbackResult = await completeHandoffCallback(
+			pubky,
+			sessionInfo,
+			requestId,
+			keypair0,
+			deviceId,
+			nowSeconds,
+			callback,
+			ed25519SecretKey,
+			caps,
+			secret,
+			relay,
+		);
+		if (callbackResult.isErr()) {
+			return callbackResult;
+		}
+		if (omitRootSessionSecret) {
+			await publishPaykitDiscoveryDocs({
+				pubky,
+				ed25519SecretKey,
+				inboxPublicKey: inboxKeypair.publicKey,
+				transportPublicKey: keypair0.publicKey,
+				appKey,
+				nowSeconds,
+			});
+		}
+		return callbackResult;
+	};
+
 	let encryptedEnvelopeBase64: string;
 	try {
 		// Encrypt with SB2 binary format (PUBKY_CRYPTO_SPEC v2.5 Section 7.2)
@@ -1157,7 +1259,7 @@ const handleSecureHandoff = async ({
 				throw new Error(`PUT failed: ${putResult.error}`);
 			}
 			// Continue with callback (skip SB2 storage below)
-			return await completeHandoffCallback(pubky, sessionInfo, requestId, keypair0, deviceId, nowSeconds, callback, ed25519SecretKey, caps, secret, relay);
+			return await finishHandoffAfterBlob();
 		} catch (fallbackError) {
 			const fallbackMsg = fallbackError instanceof Error ? fallbackError.message : 'Fallback failed';
 			showToast({
@@ -1212,60 +1314,7 @@ const handleSecureHandoff = async ({
 		return err(errorMessage);
 	}
 
-	// Publish KeyBinding at /pub/paykit.app/v0/keybinding
-	// Contains InboxKey for stored delivery and TransportKey for Noise sessions
-	const keybindingPath = `pubky://${pubky}/pub/paykit.app/v0/keybinding`;
-	const keybinding = {
-		inbox_keys: [{
-			inbox_kid: await computeInboxKid(inboxKeypair.publicKey),
-			x25519_pub: inboxKeypair.publicKey,
-		}],
-		transport_keys: [{
-			x25519_pub: keypair0.publicKey,
-		}],
-		app_keys: appKey ? [{
-			cert_id: appKey.cert_id,
-			ed25519_pub: appKey.ed25519_pk,
-		}] : [],
-	};
-	
-	const keybindingResult = await put(keybindingPath, keybinding, ed25519SecretKey);
-	if (keybindingResult.isErr()) {
-		console.warn(
-			'[PaykitConnectAction] Failed to publish KeyBinding:',
-			getErrorMessage(keybindingResult.error, 'Unknown error')
-		);
-		// Continue anyway - Bitkit can publish this later
-	} else {
-		console.log('[PaykitConnectAction] Published KeyBinding at:', keybindingPath);
-	}
-
-	// Publish Noise endpoint for discoverability by other Paykit clients
-	// This enables encrypted subscription proposals and payment requests
-	// The host/port are placeholders - Bitkit will update when starting its Noise server
-	// Schema must match PaykitMobile FFI NoiseEndpointData: { host, port, pubkey, metadata? }
-	const noiseEndpointPath = `pubky://${pubky}/pub/paykit.app/v0/noise`;
-	const noiseEndpoint = {
-		host: 'pending',
-		port: 0,
-		pubkey: keypair0.publicKey,
-		metadata: JSON.stringify({
-			provisioned_by: 'ring-handoff',
-			created_at: nowSeconds,
-		}),
-	};
-
-	const noiseResult = await put(noiseEndpointPath, noiseEndpoint, ed25519SecretKey);
-	if (noiseResult.isErr()) {
-		// Log but don't fail - the handoff payload is already stored
-		// Bitkit can retry publishing the Noise endpoint later
-		console.warn(
-			'[PaykitConnectAction] Failed to publish Noise endpoint:',
-			getErrorMessage(noiseResult.error, 'Unknown error')
-		);
-	}
-
-	return await completeHandoffCallback(pubky, sessionInfo, requestId, keypair0, deviceId, nowSeconds, callback, ed25519SecretKey, caps, secret, relay);
+	return await finishHandoffAfterBlob();
 };
 
 /**
@@ -1558,7 +1607,12 @@ const completeHandoffCallback = async (
 	);
 	console.log('[PaykitConnectAction] Callback params: requestId prefix', requestIdPrefix);
 
-	const canOpen = await Linking.canOpenURL(callbackUrl);
+	let canOpen = false;
+	try {
+		canOpen = await Linking.canOpenURL(callbackUrl);
+	} catch {
+		canOpen = false;
+	}
 	if (!canOpen) {
 		await deleteHandoffBlobBestEffort(blobUrl, ed25519SecretKey);
 		showToast({

@@ -236,6 +236,15 @@ const mockFetch = jest.fn();
 const originalFetch = global.fetch;
 const faithful = SheetManager as unknown as FaithfulSheetManager;
 
+const discoveryPutPaths = (): string[] =>
+	(put as jest.Mock).mock.calls
+		.map((call) => String(call[0]))
+		.filter(
+			(url) =>
+				url.endsWith('/pub/paykit.app/v0/keybinding') ||
+				url.endsWith('/pub/paykit.app/v0/noise'),
+		);
+
 const flushShow = async (): Promise<ShowOptions> => {
 	for (let i = 0; i < 12; i += 1) {
 		await Promise.resolve();
@@ -485,6 +494,33 @@ describe('combined https grant event-faithful', () => {
 			`pubky://test-pubky-z32/pub/paykit.app/v0/handoff/${'i'.repeat(64)}`;
 		expect(deleteFile).toHaveBeenCalledWith(handoffUrl, 'b'.repeat(64));
 		expect(mockFetch.mock.calls.every((call) => call[0] !== locatorUrl)).toBe(true);
+		expect(discoveryPutPaths()).toEqual([]);
+	});
+
+	it('https success publishes keybinding/noise after auth POST and locator POST', async () => {
+		const pending = handlePaykitConnectAction(data, context);
+		const options = await flushShow();
+		options.payload.onDecision(true);
+		const result = await pending;
+
+		expect(result.isOk()).toBe(true);
+		expect(discoveryPutPaths()).toEqual([
+			'pubky://test-pubky-z32/pub/paykit.app/v0/keybinding',
+			'pubky://test-pubky-z32/pub/paykit.app/v0/noise',
+		]);
+		const authOrder = (signAndPostAuthToken as jest.Mock).mock.invocationCallOrder[0];
+		const locatorOrder = mockFetch.mock.invocationCallOrder[0];
+		const keybindingCall = (put as jest.Mock).mock.calls.findIndex((call) =>
+			String(call[0]).endsWith('/pub/paykit.app/v0/keybinding'),
+		);
+		const noiseCall = (put as jest.Mock).mock.calls.findIndex((call) =>
+			String(call[0]).endsWith('/pub/paykit.app/v0/noise'),
+		);
+		const keybindingOrder = (put as jest.Mock).mock.invocationCallOrder[keybindingCall];
+		const noiseOrder = (put as jest.Mock).mock.invocationCallOrder[noiseCall];
+		expect(authOrder).toBeLessThan(locatorOrder);
+		expect(locatorOrder).toBeLessThan(keybindingOrder);
+		expect(keybindingOrder).toBeLessThan(noiseOrder);
 	});
 
 	it('sweeps stale /pub/paykit.app/v0/handoff/ entries and does not delete other paths', async () => {
@@ -847,6 +883,54 @@ describe('combined https grant event-faithful', () => {
 		const handoffUrl =
 			`pubky://test-pubky-z32/pub/paykit.app/v0/handoff/${'i'.repeat(64)}`;
 		expect(deleteFile).toHaveBeenCalledWith(handoffUrl, 'b'.repeat(64));
+		expect(discoveryPutPaths()).toEqual([]);
+	});
+
+	it('hypercolor:// success publishes keybinding/noise after auth POST and openURL', async () => {
+		const pending = handlePaykitConnectAction(mobileCombined, context);
+		const options = await flushShow();
+		options.payload.onDecision(true);
+		const result = await pending;
+
+		expect(result.isOk()).toBe(true);
+		expect(discoveryPutPaths()).toEqual([
+			'pubky://test-pubky-z32/pub/paykit.app/v0/keybinding',
+			'pubky://test-pubky-z32/pub/paykit.app/v0/noise',
+		]);
+		const authOrder = (signAndPostAuthToken as jest.Mock).mock.invocationCallOrder[0];
+		const openOrder = (Linking.openURL as jest.Mock).mock.invocationCallOrder[0];
+		const keybindingCall = (put as jest.Mock).mock.calls.findIndex((call) =>
+			String(call[0]).endsWith('/pub/paykit.app/v0/keybinding'),
+		);
+		const keybindingOrder = (put as jest.Mock).mock.invocationCallOrder[keybindingCall];
+		expect(authOrder).toBeLessThan(openOrder);
+		expect(openOrder).toBeLessThan(keybindingOrder);
+	});
+
+	it('bitkit:// still publishes keybinding/noise before openURL', async () => {
+		const pending = handlePaykitConnectAction({
+			action: InputAction.PaykitConnect,
+			params: {
+				deviceId: 'device123',
+				callback: 'bitkit://paykit-setup',
+				ephemeralPk,
+			},
+		}, context);
+		const options = await flushShow();
+		options.payload.onDecision(true);
+		const result = await pending;
+
+		expect(result.isOk()).toBe(true);
+		expect(discoveryPutPaths()).toEqual([
+			'pubky://test-pubky-z32/pub/paykit.app/v0/keybinding',
+			'pubky://test-pubky-z32/pub/paykit.app/v0/noise',
+		]);
+		const keybindingCall = (put as jest.Mock).mock.calls.findIndex((call) =>
+			String(call[0]).endsWith('/pub/paykit.app/v0/keybinding'),
+		);
+		const keybindingOrder = (put as jest.Mock).mock.invocationCallOrder[keybindingCall];
+		const openOrder = (Linking.openURL as jest.Mock).mock.invocationCallOrder[0];
+		expect(keybindingOrder).toBeLessThan(openOrder);
 	});
 
 	it('hypercolor:// canOpenURL false: no auth POST and deletes the handoff blob', async () => {
@@ -865,6 +949,26 @@ describe('combined https grant event-faithful', () => {
 		expect(showToast).toHaveBeenCalledWith(expect.objectContaining({
 			description: 'session.cannotOpenCallback',
 		}));
+		expect(discoveryPutPaths()).toEqual([]);
+	});
+
+	it('hypercolor:// canOpenURL throw: no auth POST and deletes the handoff blob', async () => {
+		(Linking.canOpenURL as jest.Mock).mockRejectedValue(new Error('canOpen failed'));
+		const pending = handlePaykitConnectAction(mobileCombined, context);
+		const options = await flushShow();
+		options.payload.onDecision(true);
+		const result = await pending;
+
+		expect(result.isErr()).toBe(true);
+		expect(signAndPostAuthToken).not.toHaveBeenCalled();
+		expect(Linking.openURL).not.toHaveBeenCalled();
+		const handoffUrl =
+			`pubky://test-pubky-z32/pub/paykit.app/v0/handoff/${'i'.repeat(64)}`;
+		expect(deleteFile).toHaveBeenCalledWith(handoffUrl, 'b'.repeat(64));
+		expect(showToast).toHaveBeenCalledWith(expect.objectContaining({
+			description: 'session.cannotOpenCallback',
+		}));
+		expect(discoveryPutPaths()).toEqual([]);
 	});
 
 	it('hypercolor:// openURL throw after auth POST deletes the handoff blob', async () => {

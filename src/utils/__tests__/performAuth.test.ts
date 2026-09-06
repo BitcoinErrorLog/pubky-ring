@@ -42,7 +42,7 @@ jest.mock('../../i18n', () => ({
 import { auth } from '@synonymdev/react-native-pubky';
 import { getKeychainValue } from '../keychain';
 import { getPubkyDataFromStore } from '../store-helpers';
-import { performAuth, signAndPostAuthToken } from '../pubky';
+import { performAuth, signAndPostAuthToken, LATE_NATIVE_AUTH_IGNORED_LOG } from '../pubky';
 
 const LEAKY = 'native fail https://relay.example/pubkyauth?secret=abc123';
 
@@ -152,6 +152,50 @@ describe('signAndPostAuthToken', () => {
 				expect(result.error.message).toBe('auth.timeoutError');
 			}
 		} finally {
+			jest.useRealTimers();
+		}
+	});
+
+	it('ignores late native success after timeout, logs once, and does not POST twice', async () => {
+		jest.useFakeTimers();
+		const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+		const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+		try {
+			let resolveAuth: (value: unknown) => void = () => undefined;
+			(auth as jest.Mock).mockImplementation(
+				() =>
+					new Promise((resolve) => {
+						resolveAuth = resolve;
+					}),
+			);
+			const pending = signAndPostAuthToken({
+				authUrl: 'pubkyauth:///?caps=/pub/paykit/:rw',
+				secretKey: 'sk',
+			});
+			await jest.advanceTimersByTimeAsync(20_000);
+			const result = await pending;
+			expect(result.isErr()).toBe(true);
+			if (result.isErr()) {
+				expect(result.error.message).toBe('auth.timeoutError');
+			}
+
+			resolveAuth(ok('Authorization success'));
+			await Promise.resolve();
+			await Promise.resolve();
+
+			expect(auth).toHaveBeenCalledTimes(1);
+			expect(result.isErr()).toBe(true);
+			const ignored = warnSpy.mock.calls.filter((call) =>
+				String(call[0]).includes(LATE_NATIVE_AUTH_IGNORED_LOG),
+			);
+			expect(ignored).toHaveLength(1);
+			const timeoutLogs = errorSpy.mock.calls.filter((call) =>
+				call.map(String).join(' ').includes(`${AUTH_ERROR_LOG_PREFIX}timeout`),
+			);
+			expect(timeoutLogs).toHaveLength(1);
+		} finally {
+			warnSpy.mockRestore();
+			errorSpy.mockRestore();
 			jest.useRealTimers();
 		}
 	});

@@ -724,6 +724,23 @@ describe('paykitConnectAction', () => {
 			expect(result.isErr()).toBe(true);
 			expect(deleteFile).toHaveBeenCalled();
 		});
+
+		it('treats canOpenURL throw like false and deletes the handoff blob', async () => {
+			(Linking.canOpenURL as jest.Mock).mockRejectedValue(new Error('canOpen failed'));
+			const data = createActionData();
+
+			const result = await handlePaykitConnectAction(data, mockContext);
+
+			expect(result.isErr()).toBe(true);
+			expect(deleteFile).toHaveBeenCalled();
+			expect(signAndPostAuthToken).not.toHaveBeenCalled();
+			expect(Linking.openURL).not.toHaveBeenCalled();
+			expect(showToast).toHaveBeenCalledWith(
+				expect.objectContaining({
+					description: 'session.cannotOpenCallback',
+				}),
+			);
+		});
 	});
 
 	describe('deviceId handling', () => {
@@ -762,6 +779,73 @@ describe('paykitConnectAction', () => {
 			expect(result.isErr()).toBe(true);
 			expect(SheetManager.show).not.toHaveBeenCalled();
 			expect(signInToHomeserver).not.toHaveBeenCalled();
+		});
+
+		it('accepts a 64-character bitkit deviceId', async () => {
+			const deviceId = `d${'a'.repeat(63)}`;
+			const result = await handlePaykitConnectAction(
+				createActionData({ deviceId }),
+				mockContext,
+			);
+
+			expect(result.isOk()).toBe(true);
+			expect(signInToHomeserver).toHaveBeenCalled();
+		});
+
+		it('rejects a 65-character bitkit deviceId before the sheet', async () => {
+			const result = await handlePaykitConnectAction(
+				createActionData({ deviceId: `d${'a'.repeat(64)}` }),
+				mockContext,
+			);
+
+			expect(result.isErr()).toBe(true);
+			expect(SheetManager.show).not.toHaveBeenCalled();
+			expect(signInToHomeserver).not.toHaveBeenCalled();
+		});
+
+		it.each(['my device', 'id/slash', 'id@host', ''])(
+			'rejects bitkit deviceId %j before the sheet',
+			async (deviceId) => {
+				const result = await handlePaykitConnectAction(
+					createActionData({ deviceId }),
+					mockContext,
+				);
+
+				expect(result.isErr()).toBe(true);
+				expect(SheetManager.show).not.toHaveBeenCalled();
+			},
+		);
+
+		it('rejects a hypercolor mobile deviceId longer than 16 hex digits', async () => {
+			const result = await handlePaykitConnectAction(
+				createActionData({
+					callback: 'hypercolor://paykit-setup',
+					deviceId: `hypercolor-${'a'.repeat(17)}`,
+					secret: HYPERCOLOR_AUTH_SECRET,
+					relay: HYPERCOLOR_AUTH_RELAY,
+					caps: HYPERCOLOR_GRANT_CAPS,
+				}),
+				mockContext,
+			);
+
+			expect(result.isErr()).toBe(true);
+			expect(SheetManager.show).not.toHaveBeenCalled();
+			expect(signInToHomeserver).not.toHaveBeenCalled();
+		});
+
+		it('accepts a 16-hex hypercolor mobile deviceId', async () => {
+			await handlePaykitConnectAction(
+				createActionData({
+					callback: 'hypercolor://paykit-setup',
+					deviceId: `hypercolor-${'a'.repeat(16)}`,
+					secret: HYPERCOLOR_AUTH_SECRET,
+					relay: HYPERCOLOR_AUTH_RELAY,
+					caps: HYPERCOLOR_GRANT_CAPS,
+				}),
+				mockContext,
+			);
+
+			expect(signInToHomeserver).toHaveBeenCalled();
 		});
 	});
 

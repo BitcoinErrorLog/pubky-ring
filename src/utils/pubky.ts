@@ -609,6 +609,10 @@ export const truncatePubky = (pubky: string): string => {
 
 const TIMEOUT_MS = 20000;
 
+/** Logged once when native auth resolves after JS already timed out. */
+export const LATE_NATIVE_AUTH_IGNORED_LOG =
+	'[signAndPostAuthToken] Ignoring late native auth result after JS timeout';
+
 /** Exact native success payload (`create_response_vector(false, …)`). */
 const NATIVE_AUTH_SUCCESS = 'Authorization success';
 
@@ -662,17 +666,41 @@ export const signAndPostAuthToken = async ({
 	secretKey: string;
 }): Promise<Result<string[]>> => {
 	try {
+		let settled = false;
 		let timeoutId: ReturnType<typeof setTimeout> | undefined;
+		const ignoreLateNativeResult = (): void => {
+			console.warn(LATE_NATIVE_AUTH_IGNORED_LOG);
+		};
 		const timeoutPromise = new Promise<Result<string[]>>((resolve) => {
 			timeoutId = setTimeout(() => {
+				if (settled) {
+					return;
+				}
+				settled = true;
 				const sanitized = sanitizeAuthError('timeout', 'timeout');
 				logAuthError(sanitized.code);
 				resolve(err(sanitized.message));
 			}, TIMEOUT_MS);
 		});
+		const authPromise = (async (): Promise<Result<string[]>> => {
+			try {
+				const authRes = await auth(authUrl, secretKey);
+				if (settled) {
+					ignoreLateNativeResult();
+					return err('ignored late native auth');
+				}
+				settled = true;
+				return resultFromNativeAuthCall(authRes);
+			} catch (nativeError: unknown) {
+				if (settled) {
+					ignoreLateNativeResult();
+					return err('ignored late native auth');
+				}
+				throw nativeError;
+			}
+		})();
+		authPromise.catch(() => undefined);
 		try {
-			const authPromise = (async (): Promise<Result<string[]>> =>
-				resultFromNativeAuthCall(await auth(authUrl, secretKey)))();
 			return await Promise.race([authPromise, timeoutPromise]);
 		} finally {
 			if (timeoutId !== undefined) {
