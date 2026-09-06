@@ -113,7 +113,18 @@ const ConfirmPaykitConnect = ({
 		requestGeneration,
 		onDecision,
 		includesWebSession,
+		includesHypercolorMobileSession,
 	} = payload;
+	const titleKey = includesWebSession
+		? 'session.paykitConnectWebTitle'
+		: includesHypercolorMobileSession
+			? 'session.paykitConnectMobileTitle'
+			: 'session.paykitConnectTitle';
+	const sessionLineKey = includesWebSession
+		? 'session.paykitConnectSessionLine'
+		: includesHypercolorMobileSession
+			? 'session.paykitConnectMobileSessionLine'
+			: 'session.paykitConnectWarning';
 	const pubkyName = useSelector((state: RootState) => getPubkyName(state, pubky));
 
 	const handleCopyPubky = useCallback(() => {
@@ -150,7 +161,7 @@ const ConfirmPaykitConnect = ({
 				<View style={styles.mainContent}>
 					<View style={styles.titleContainer}>
 						<Text style={styles.title}>
-							{t(includesWebSession ? 'session.paykitConnectWebTitle' : 'session.paykitConnectTitle')}
+							{t(titleKey)}
 						</Text>
 					</View>
 
@@ -205,9 +216,7 @@ const ConfirmPaykitConnect = ({
 					</View>
 
 					<SessionText style={styles.warningText} testID="ConfirmPaykitConnectWarning">
-						{t(includesWebSession
-							? 'session.paykitConnectSessionLine'
-							: 'session.paykitConnectWarning')}
+						{t(sessionLineKey)}
 					</SessionText>
 				</View>
 

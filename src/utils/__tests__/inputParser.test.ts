@@ -314,6 +314,26 @@ describe('inputParser', () => {
 			}
 		});
 
+		it('parses secret and relay on a hypercolor:// mobile callback', async () => {
+			const secret = 'ERERERERERERERERERERERERERERERERERERERERERE';
+			const relay = 'https://httprelay.pubky.app/link/';
+			const url =
+				`pubkyring://paykit-connect?deviceId=hypercolor-19c8e5a3c00` +
+				`&callback=hypercolor%3A%2F%2Fring-callback` +
+				`&ephemeralPk=${HYPERCOLOR_EPHEMERAL_PK}` +
+				`&caps=%2Fpub%2Fpaykit%2F%3Arw%2C%2Fpub%2Fhypercolor.app%2Fv1%2F%3Arw` +
+				`&secret=${secret}&relay=${encodeURIComponent(relay)}`;
+
+			const result = await parseInput(url, 'scan');
+
+			expect(isPaykitConnectAction(result.data)).toBe(true);
+			if (isPaykitConnectAction(result.data)) {
+				expect(result.data.params.callback).toBe('hypercolor://ring-callback');
+				expect(result.data.params.secret).toBe(secret);
+				expect(result.data.params.relay).toBe(relay);
+			}
+		});
+
 		it('omits secret and relay when they are absent (Bitkit custom scheme)', async () => {
 			const url = 'pubkyring://paykit-connect?deviceId=device123&callback=bitkit://paykit-setup';
 

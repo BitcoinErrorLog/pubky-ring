@@ -158,6 +158,38 @@ describe('ConfirmPaykitConnect render behavior', () => {
 		expect(findByTestId(renderer!.root, 'ConfirmPaykitConnectVerification')).toBeTruthy();
 	});
 
+	it('renders the Hypercolor mobile combined session line', async () => {
+		const current = nextRequestGeneration();
+		const store = createStore();
+		let renderer: ReturnType<typeof create>;
+		await act(async () => {
+			renderer = create(
+				<Provider store={store}>
+					<ConfirmPaykitConnect
+						payload={{
+							pubky: 'pk:current',
+							destination: 'hypercolor:// app on this device',
+							deviceId: 'hypercolor-19c8e5a3c00',
+							capabilities: [
+								{ path: '/pub/paykit/', permission: 'rw' },
+								{ path: '/pub/hypercolor.app/v1/', permission: 'rw' },
+							],
+							verificationCode: '8eO-wP5',
+							requestGeneration: current,
+							includesHypercolorMobileSession: true,
+						}}
+					/>
+				</Provider>,
+			);
+		});
+
+		const text = collectText(renderer!.root);
+		expect(text).toContain('session.paykitConnectMobileTitle');
+		expect(text).toContain('session.paykitConnectMobileSessionLine');
+		expect(text).toContain('/pub/paykit/');
+		expect(text).toContain('/pub/hypercolor.app/v1/');
+	});
+
 	it('Approve calls onDecision(true) only for the current generation', async () => {
 		const current = nextRequestGeneration();
 		const onDecision = jest.fn();

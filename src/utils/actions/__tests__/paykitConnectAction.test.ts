@@ -1052,7 +1052,7 @@ describe('paykitConnectAction', () => {
 			);
 		});
 
-		it('rejects custom-scheme callbacks that carry secret or relay', async () => {
+		it('rejects bitkit:// callbacks that carry secret or relay', async () => {
 			const result = await handlePaykitConnectAction(
 				createActionData({
 					secret: HYPERCOLOR_AUTH_SECRET,

@@ -11,6 +11,8 @@ type SheetHandler = (...args: unknown[]) => void;
 type ShowOptions = {
 	payload: {
 		onDecision: (approved: boolean) => void;
+		includesWebSession?: boolean;
+		includesHypercolorMobileSession?: boolean;
 	};
 	onClose: () => void;
 };
@@ -753,4 +755,127 @@ describe('combined https grant event-faithful', () => {
 		expect(warnSpy).toHaveBeenCalledWith('[PaykitConnect] rejected gate=relay');
 		warnSpy.mockRestore();
 	});
+
+	const mobileDeviceId = 'hypercolor-19c8e5a3c00';
+	const mobileCallback = 'hypercolor://ring-callback';
+	const mobileCombined = {
+		action: InputAction.PaykitConnect as const,
+		params: {
+			deviceId: mobileDeviceId,
+			callback: mobileCallback,
+			ephemeralPk,
+			caps: GRANT_CAPS,
+			secret: AUTH_SECRET,
+			relay: AUTH_RELAY,
+		},
+	};
+
+	it('hypercolor:// with secret/relay: one sheet, auth POST then openURL, no session_secret', async () => {
+		const pending = handlePaykitConnectAction(mobileCombined, context);
+		const options = await flushShow();
+		expect(faithful.shows).toEqual(['confirm-paykit-connect']);
+		expect(faithful.shows).not.toContain('confirm-auth');
+		expect(options.payload).toEqual(expect.objectContaining({
+			includesHypercolorMobileSession: true,
+			includesWebSession: false,
+		}));
+		options.payload.onDecision(true);
+		const result = await pending;
+
+		expect(result.isOk()).toBe(true);
+		expect(signAndPostAuthToken).toHaveBeenCalled();
+		expect(mockFetch.mock.calls[0][0]).toBe(AUTH_CHANNEL_URL);
+		expect(mockFetch.mock.calls.every((call) => !String(call[0]).includes('/hc-'))).toBe(true);
+		expect(Linking.openURL).toHaveBeenCalled();
+		const payload = decodeSb2Payload();
+		expect(payload).not.toHaveProperty('session_secret');
+		expect(payload).not.toHaveProperty('capabilities');
+	});
+
+	it('hypercolor:// without secret keeps legacy session_secret and openURL', async () => {
+		const pending = handlePaykitConnectAction({
+			action: InputAction.PaykitConnect,
+			params: {
+				deviceId: mobileDeviceId,
+				callback: mobileCallback,
+				ephemeralPk,
+			},
+		}, context);
+		const options = await flushShow();
+		options.payload.onDecision(true);
+		const result = await pending;
+
+		expect(result.isOk()).toBe(true);
+		expect(signAndPostAuthToken).not.toHaveBeenCalled();
+		expect(Linking.openURL).toHaveBeenCalled();
+		const payload = decodeSb2Payload();
+		expect(payload.session_secret).toBe('session-secret-123');
+		expect(payload.capabilities).toEqual(['/pub:rw']);
+	});
+
+	it('bitkit:// with secret/relay is rejected before the sheet', async () => {
+		const pending = handlePaykitConnectAction({
+			action: InputAction.PaykitConnect,
+			params: {
+				deviceId: 'device123',
+				callback: 'bitkit://paykit-setup',
+				ephemeralPk,
+				secret: AUTH_SECRET,
+				relay: AUTH_RELAY,
+			},
+		}, context);
+		const result = await pending;
+
+		expect(result.isErr()).toBe(true);
+		expect(faithful.shows).toEqual([]);
+		expect(signAndPostAuthToken).not.toHaveBeenCalled();
+		expect(Linking.openURL).not.toHaveBeenCalled();
+	});
+
+	it('hypercolor:// combined auth POST fail: no openURL and deletes the handoff blob', async () => {
+		mockFetch.mockResolvedValueOnce({ ok: false, status: 500, type: 'basic' });
+		const pending = handlePaykitConnectAction(mobileCombined, context);
+		const options = await flushShow();
+		options.payload.onDecision(true);
+		const result = await pending;
+
+		expect(result.isErr()).toBe(true);
+		expect(Linking.openURL).not.toHaveBeenCalled();
+		const handoffUrl =
+			`pubky://test-pubky-z32/pub/paykit.app/v0/handoff/${'i'.repeat(64)}`;
+		expect(deleteFile).toHaveBeenCalledWith(handoffUrl, 'b'.repeat(64));
+	});
+
+	it('rejects hypercolor:// combined /:rw caps at intake before the sheet', async () => {
+		const pending = handlePaykitConnectAction({
+			...mobileCombined,
+			params: {
+				...mobileCombined.params,
+				caps: ['/:rw'],
+			},
+		}, context);
+		const result = await pending;
+
+		expect(result.isErr()).toBe(true);
+		expect(faithful.shows).toEqual([]);
+		expect(signInToHomeserver).not.toHaveBeenCalled();
+		expect(signAndPostAuthToken).not.toHaveBeenCalled();
+		expect(Linking.openURL).not.toHaveBeenCalled();
+	});
+
+	it('rejects a non-mobile deviceId on combined hypercolor:// before the sheet', async () => {
+		const pending = handlePaykitConnectAction({
+			...mobileCombined,
+			params: {
+				...mobileCombined.params,
+				deviceId: 'hypercolor-web-1a070b03cdc',
+			},
+		}, context);
+		const result = await pending;
+
+		expect(result.isErr()).toBe(true);
+		expect(faithful.shows).toEqual([]);
+		expect(signInToHomeserver).not.toHaveBeenCalled();
+	});
 });
+

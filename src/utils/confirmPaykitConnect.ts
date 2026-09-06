@@ -36,6 +36,7 @@ export type PaykitConnectConfirmPayload = {
 	capabilities: PaykitConnectCapability[];
 	verificationCode: string;
 	includesWebSession?: boolean;
+	includesHypercolorMobileSession?: boolean;
 	requestGeneration: number;
 	onDecision?: (approved: boolean) => void;
 };
