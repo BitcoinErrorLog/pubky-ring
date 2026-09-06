@@ -662,7 +662,23 @@ export const signAndPostAuthToken = async ({
 	secretKey: string;
 }): Promise<Result<string[]>> => {
 	try {
-		return resultFromNativeAuthCall(await auth(authUrl, secretKey));
+		let timeoutId: ReturnType<typeof setTimeout> | undefined;
+		const timeoutPromise = new Promise<Result<string[]>>((resolve) => {
+			timeoutId = setTimeout(() => {
+				const sanitized = sanitizeAuthError('timeout', 'timeout');
+				logAuthError(sanitized.code);
+				resolve(err(sanitized.message));
+			}, TIMEOUT_MS);
+		});
+		try {
+			const authPromise = (async (): Promise<Result<string[]>> =>
+				resultFromNativeAuthCall(await auth(authUrl, secretKey)))();
+			return await Promise.race([authPromise, timeoutPromise]);
+		} finally {
+			if (timeoutId !== undefined) {
+				clearTimeout(timeoutId);
+			}
+		}
 	} catch (error: unknown) {
 		const sanitized = sanitizeAuthError(error, 'failed');
 		logAuthError(sanitized.code);

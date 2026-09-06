@@ -66,6 +66,7 @@ export const routeInputWithContext = async (
 				errorMessage === i18n.t('session.paykitConnectStaleQr') ||
 				errorMessage === i18n.t('session.paykitConnectRelayRejected') ||
 				errorMessage === i18n.t('session.paykitConnectMalformedRequest') ||
+				errorMessage === i18n.t('session.paykitConnectUpdateHypercolor') ||
 				errorMessage === i18n.t('session.paykitConnectAuthFailed') ||
 				errorMessage === i18n.t('session.paykitConnectCapsMismatch') ||
 				errorMessage === i18n.t('session.webHandoffRelayFailed') ||

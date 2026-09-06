@@ -21,10 +21,11 @@
  * 6. Ring publishes KeyBinding at /pub/paykit.app/v0/keybinding (contains InboxKey, TransportKey, AppKey)
  * 7. Ring publishes Noise endpoint at /pub/paykit.app/v0/noise (for discoverability)
  * 8. Native custom-scheme callback: Ring opens bitkit://… / hypercolor://… with
- *    pubky + request_id + mode=secure_handoff + homeserver (same-device).
- *    Combined `hypercolor://` (QR carries secret+relay): scoped AuthToken POST
- *    happens first; SB2 omits session_secret (P1-1). Legacy `hypercolor://`
- *    without secret/relay still puts session_secret in the envelope.
+ *    pubky + request_id + homeserver (same-device). Combined `hypercolor://`
+ *    requires secret+relay: canOpenURL, then scoped AuthToken POST, then openURL
+ *    with mode=secure_handoff+pubkyauth; SB2 omits session_secret. A hypercolor://
+ *    QR without secret+relay is rejected (legacy path removed). Other custom
+ *    schemes (bitkit) still use mode=secure_handoff and may include session_secret.
  *    First-party https callback: Ring NEVER opens a browser. It POSTs those
  *    four public locator fields to httprelay (HYPERCOLOR_HTTP_RELAY_BASE/hc-<ch>)
  *    so the page that is already polling that channel can continue on its own
@@ -156,6 +157,12 @@ const HANDOFF_REQUEST_ID_RE = /^[0-9a-f]{64}$/i;
 const HYPERCOLOR_WEB_DEVICE_ID_RE = /^hypercolor-web-[0-9a-f]{1,16}$/;
 // Hypercolor mobile Welcome/AwaitingRing: `hypercolor-${Date.now().toString(16)}`.
 const HYPERCOLOR_MOBILE_DEVICE_ID_RE = /^hypercolor-[0-9a-f]+$/;
+// Bitkit (and tests) send unprefixed ids. Bound charset/length and reject
+// Hypercolor-shaped ids so an attacker QR cannot derive another app's keys.
+const BITKIT_DEVICE_ID_RE = /^(?!hypercolor(?:-web)?-)[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const PAYKIT_DEVICE_ID_RE = BITKIT_DEVICE_ID_RE;
+const ATOMICITY_DEVICE_ID_RE = /^(?!hypercolor(?:-web)?-)[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const APPCERT_TTL_SECONDS = 365 * 24 * 60 * 60;
 
 export { cancelDeferredHandoffDeletes };
 
@@ -267,6 +274,7 @@ const PAYKIT_REJECT_TOAST_DELAY_MS = 150;
  *
  * Custom-scheme paykit-connect must not carry `relay` except combined
  * `hypercolor://` (R7). Bitkit and other schemes still reject them.
+ * `hypercolor://` without secret+relay is rejected (legacy removed).
  */
 export const assertAllowedAuthRelay = (relay: string): boolean => {
 	const trimmed = relay.trim();
@@ -424,6 +432,29 @@ const rejectRelayNotAllowlisted = (): Promise<Result<string>> =>
 
 const rejectMalformedHypercolorQr = (): Promise<Result<string>> =>
 	rejectPaykitConnect('deviceId', 'session.paykitConnectMalformedRequest');
+
+const rejectLegacyHypercolorQr = (): Promise<Result<string>> =>
+	rejectPaykitConnect('legacyHypercolor', 'session.paykitConnectUpdateHypercolor');
+
+const isAllowedDeviceIdForCallback = (callback: string, deviceId: string): boolean => {
+	if (isAllowedHttpsPaykitCallback(callback)) {
+		return HYPERCOLOR_WEB_DEVICE_ID_RE.test(deviceId);
+	}
+	const scheme = parseCallbackScheme(callback);
+	if (scheme === 'hypercolor') {
+		return HYPERCOLOR_MOBILE_DEVICE_ID_RE.test(deviceId);
+	}
+	if (scheme === 'bitkit') {
+		return BITKIT_DEVICE_ID_RE.test(deviceId);
+	}
+	if (scheme === 'paykit') {
+		return PAYKIT_DEVICE_ID_RE.test(deviceId);
+	}
+	if (scheme === 'atomicity') {
+		return ATOMICITY_DEVICE_ID_RE.test(deviceId);
+	}
+	return false;
+};
 
 const withBoundedTimeout = async <T>(work: Promise<T>, timeoutMs: number): Promise<T> => {
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -778,12 +809,11 @@ export const handlePaykitConnectAction = async (
 
 	const isHttpsCallback = isAllowedHttpsPaykitCallback(callback);
 	const isHypercolorMobile = isHypercolorMobileCallback(callback);
-	const hasCombinedAuthParams = Boolean(secret && relay);
-	const omitRootSessionSecret = isHttpsCallback || (isHypercolorMobile && hasCombinedAuthParams);
-	// R7: secret+relay required iff https Hypercolor callback. `hypercolor://`
-	// MAY carry them (combined scoped grant). Bitkit and every other custom
-	// scheme must not — reject, do not ignore. Missing secret/relay on https
-	// is the stale-web-tab case (P4-4), not a generic invalid callback.
+	const omitRootSessionSecret = isHttpsCallback || isHypercolorMobile;
+	// R7: secret+relay required for https and for hypercolor://. Bitkit and
+	// every other custom scheme must not carry them — reject, do not ignore.
+	// Missing secret/relay on https is the stale-web-tab case (P4-4).
+	// Missing secret/relay on hypercolor:// is a leftover legacy QR.
 	if (isHttpsCallback) {
 		if (!isValidPaykitAuthSecret(secret) || !relay) {
 			return rejectStaleHypercolorQr();
@@ -797,12 +827,12 @@ export const handlePaykitConnectAction = async (
 		if (!paykitConnectCapSetsEqual(data.params.caps ?? [], [...HYPERCOLOR_EXPECTED_CAPS])) {
 			return rejectCapsMismatch();
 		}
-		if (!HYPERCOLOR_WEB_DEVICE_ID_RE.test(deviceId)) {
+		if (!isAllowedDeviceIdForCallback(callback, deviceId)) {
 			return rejectMalformedHypercolorQr();
 		}
-	} else if (isHypercolorMobile && (secret || relay)) {
+	} else if (isHypercolorMobile) {
 		if (!isValidPaykitAuthSecret(secret) || !relay) {
-			return rejectInvalidCallback();
+			return rejectLegacyHypercolorQr();
 		}
 		if (!assertAllowedAuthRelay(relay)) {
 			return rejectRelayNotAllowlisted();
@@ -810,10 +840,12 @@ export const handlePaykitConnectAction = async (
 		if (!paykitConnectCapSetsEqual(data.params.caps ?? [], [...HYPERCOLOR_EXPECTED_CAPS])) {
 			return rejectCapsMismatch();
 		}
-		if (!HYPERCOLOR_MOBILE_DEVICE_ID_RE.test(deviceId)) {
+		if (!isAllowedDeviceIdForCallback(callback, deviceId)) {
 			return rejectMalformedHypercolorQr();
 		}
 	} else if (secret || relay) {
+		return rejectInvalidCallback();
+	} else if (!isAllowedDeviceIdForCallback(callback, deviceId)) {
 		return rejectInvalidCallback();
 	}
 
@@ -831,7 +863,7 @@ export const handlePaykitConnectAction = async (
 		capabilities: parsePaykitConnectCaps(data.params.caps),
 		verificationCode: formatRingVerificationCode(derivedChannelId),
 		includesWebSession: isHttpsCallback,
-		includesHypercolorMobileSession: omitRootSessionSecret && !isHttpsCallback,
+		includesHypercolorMobileSession: isHypercolorMobile,
 	});
 	if (confirmation === 'superseded') {
 		return ok('superseded');
@@ -1013,7 +1045,9 @@ const handleSecureHandoff = async ({
 			inboxKeypair.publicKey, // InboxKey
 			isHexString(deviceId) ? deviceId : stringToHex(deviceId),
 			['paykit:*'], // Full Paykit scope
-			null, // No expiry for now
+			omitRootSessionSecret
+				? Math.floor(Date.now() / 1000) + APPCERT_TTL_SECONDS
+				: null,
 		);
 
 		appKey = {
@@ -1457,8 +1491,9 @@ const postPubkyAuthThenLocator = async ({
 
 /**
  * Complete the handoff: https → auth POST then locator POST (never open a browser);
- * combined `hypercolor://` → auth POST then Linking.openURL (no session_secret
- * in SB2); other custom schemes → Linking.openURL (legacy session_secret).
+ * combined `hypercolor://` → canOpenURL, then auth POST, then Linking.openURL
+ * (no session_secret in SB2); other custom schemes → Linking.openURL (bitkit
+ * still includes session_secret).
  */
 const completeHandoffCallback = async (
 	pubky: string,
@@ -1499,34 +1534,18 @@ const completeHandoffCallback = async (
 		});
 	}
 
-	if (isHypercolorMobileCallback(callback) && (secret || relay)) {
-		if (!secret || !relay) {
-			await deleteHandoffBlobBestEffort(handoffBlobUrl(sessionInfo.pubky, requestId), ed25519SecretKey);
-			return rejectInvalidCallback();
-		}
-		const authRes = await postScopedAuthToken({
-			pubky: sessionInfo.pubky,
-			requestId,
-			ed25519SecretKey,
-			caps,
-			secret,
-			relay,
-		});
-		if (authRes.isErr()) {
-			return err(authRes.error);
-		}
-	}
-
+	const isCombinedMobile = isHypercolorMobileCallback(callback);
 	const callbackScheme = parseCallbackScheme(callback) ?? 'unknown';
 	const requestIdPrefix = requestId.substring(0, 8);
+	const blobUrl = handoffBlobUrl(sessionInfo.pubky, requestId);
 
-	// Custom-scheme: same-device. Homeserver is needed for iOS which
-	// doesn't have pkarr resolution. Combined hypercolor:// still uses
-	// these public locator fields — never session_secret on the URL.
+	// Custom-scheme: same-device. Combined hypercolor:// uses public locator
+	// fields only — never session_secret on the URL — and mode names the
+	// scoped grant so the receiver can require secure_handoff+pubkyauth.
 	const callbackParams: Record<string, string> = {
 		pubky: sessionInfo.pubky,
 		request_id: requestId,
-		mode: 'secure_handoff',
+		mode: isCombinedMobile ? 'secure_handoff+pubkyauth' : 'secure_handoff',
 		homeserver: homeserverPubkey,
 	};
 
@@ -1541,6 +1560,7 @@ const completeHandoffCallback = async (
 
 	const canOpen = await Linking.canOpenURL(callbackUrl);
 	if (!canOpen) {
+		await deleteHandoffBlobBestEffort(blobUrl, ed25519SecretKey);
 		showToast({
 			type: 'error',
 			title: i18n.t('common.error'),
@@ -1549,9 +1569,37 @@ const completeHandoffCallback = async (
 		return err('Cannot open callback URL');
 	}
 
-	await Linking.openURL(callbackUrl);
+	if (isCombinedMobile) {
+		if (!secret || !relay) {
+			await deleteHandoffBlobBestEffort(blobUrl, ed25519SecretKey);
+			return rejectLegacyHypercolorQr();
+		}
+		const authRes = await postScopedAuthToken({
+			pubky: sessionInfo.pubky,
+			requestId,
+			ed25519SecretKey,
+			caps,
+			secret,
+			relay,
+		});
+		if (authRes.isErr()) {
+			return err(authRes.error);
+		}
+	}
+
+	try {
+		await Linking.openURL(callbackUrl);
+	} catch {
+		await deleteHandoffBlobBestEffort(blobUrl, ed25519SecretKey);
+		showToast({
+			type: 'error',
+			title: i18n.t('common.error'),
+			description: i18n.t('session.cannotOpenCallback'),
+		});
+		return err('Cannot open callback URL');
+	}
 	scheduleDeferredHandoffDelete(
-		handoffBlobUrl(sessionInfo.pubky, requestId),
+		blobUrl,
 		ed25519SecretKey,
 		sessionInfo.pubky,
 	);

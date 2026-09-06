@@ -231,8 +231,6 @@ import { showToast } from '../../helpers';
 const AUTH_SECRET = 'ERERERERERERERERERERERERERERERERERERERERERE';
 const AUTH_RELAY = 'https://httprelay.pubky.app/link/';
 const GRANT_CAPS = ['/pub/paykit/:rw', '/pub/hypercolor.app/v1/:rw'];
-const AUTH_CHANNEL_URL =
-	'https://httprelay.pubky.app/link/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 const mockFetch = jest.fn();
 const originalFetch = global.fetch;
@@ -316,21 +314,13 @@ describe('combined https grant event-faithful', () => {
 		(list as jest.Mock).mockResolvedValue(ok([]));
 		(get as jest.Mock).mockResolvedValue(err('not found'));
 		(deleteFile as jest.Mock).mockResolvedValue(ok(undefined));
+		(Linking.canOpenURL as jest.Mock).mockResolvedValue(true);
+		(Linking.openURL as jest.Mock).mockResolvedValue(undefined);
 		(signAndPostAuthToken as jest.Mock).mockImplementation(async ({ authUrl }: { authUrl: string }) => {
 			expect(authUrl.startsWith('pubkyauth:///?')).toBe(true);
-			try {
-				const response = await fetch(AUTH_CHANNEL_URL, {
-					method: 'POST',
-					body: 'ciphertext',
-					redirect: 'error',
-				});
-				if (response.status < 200 || response.status >= 300) {
-					return err('auth failed');
-				}
-				return ok([]);
-			} catch {
-				return err('auth failed');
-			}
+			const params = new URLSearchParams(authUrl.slice('pubkyauth:///?'.length));
+			expect(params.get('relay')).toBe(AUTH_RELAY);
+			return ok([]);
 		});
 	});
 
@@ -349,16 +339,15 @@ describe('combined https grant event-faithful', () => {
 		expect(faithful.shows).toEqual(['confirm-paykit-connect']);
 		expect(faithful.shows).not.toContain('confirm-auth');
 		options.payload.onDecision(true);
-		await pending;
+		const result = await pending;
 
-		expect(mockFetch).toHaveBeenCalledTimes(2);
-		expect(mockFetch.mock.calls[0][0]).toBe(AUTH_CHANNEL_URL);
-		expect(mockFetch.mock.calls[0][1]).toEqual(expect.objectContaining({
-			method: 'POST',
-			redirect: 'error',
+		expect(result.isOk()).toBe(true);
+		expect(signAndPostAuthToken).toHaveBeenCalledWith(expect.objectContaining({
+			authUrl: expect.stringContaining(`relay=${encodeURIComponent(AUTH_RELAY)}`),
 		}));
-		expect(mockFetch.mock.calls[1][0]).toBe(locatorUrl);
-		expect(mockFetch.mock.calls[1][1]).toEqual(expect.objectContaining({
+		expect(mockFetch).toHaveBeenCalledTimes(1);
+		expect(mockFetch.mock.calls[0][0]).toBe(locatorUrl);
+		expect(mockFetch.mock.calls[0][1]).toEqual(expect.objectContaining({
 			method: 'POST',
 			redirect: 'error',
 		}));
@@ -374,16 +363,15 @@ describe('combined https grant event-faithful', () => {
 		expect(mockFetch).not.toHaveBeenCalled();
 	});
 
-	it('auth POST non-2xx posts zero locator', async () => {
-		mockFetch.mockResolvedValueOnce({ ok: false, status: 500, type: 'basic' });
+	it('auth POST failure posts zero locator', async () => {
+		(signAndPostAuthToken as jest.Mock).mockResolvedValue(err('auth failed'));
 		const pending = handlePaykitConnectAction(data, context);
 		const options = await flushShow();
 		options.payload.onDecision(true);
 		const result = await pending;
 
 		expect(result.isErr()).toBe(true);
-		expect(mockFetch).toHaveBeenCalledTimes(1);
-		expect(mockFetch.mock.calls[0][0]).toBe(AUTH_CHANNEL_URL);
+		expect(mockFetch).not.toHaveBeenCalled();
 	});
 
 	it('caps mismatch posts zero locator', async () => {
@@ -397,8 +385,8 @@ describe('combined https grant event-faithful', () => {
 		expect(mockFetch).not.toHaveBeenCalled();
 	});
 
-	it('3xx on auth POST is a failure and skips locator', async () => {
-		mockFetch.mockImplementationOnce(() => Promise.reject(new TypeError('Failed to fetch')));
+	it('auth POST throw is a failure and skips locator', async () => {
+		(signAndPostAuthToken as jest.Mock).mockResolvedValue(err('auth failed'));
 		const pending = handlePaykitConnectAction(data, context);
 		const options = await flushShow();
 		options.payload.onDecision(true);
@@ -440,9 +428,13 @@ describe('combined https grant event-faithful', () => {
 
 		expect(result.isOk()).toBe(true);
 		expect(Linking.openURL).toHaveBeenCalled();
+		const opened = (Linking.openURL as jest.Mock).mock.calls[0][0] as string;
+		expect(opened).toContain('mode=secure_handoff');
+		expect(opened).not.toContain('pubkyauth');
 		const payload = decodeSb2Payload();
 		expect(payload.session_secret).toBe('session-secret-123');
 		expect(payload.capabilities).toEqual(['/pub:rw']);
+		expect((issueAppCert as jest.Mock).mock.calls[0][7]).toBeNull();
 	});
 
 	it('rejects https /:rw caps at intake before the sheet or sign-in', async () => {
@@ -483,7 +475,7 @@ describe('combined https grant event-faithful', () => {
 	});
 
 	it('deletes the requestId-scoped handoff blob when auth POST fails', async () => {
-		mockFetch.mockResolvedValueOnce({ ok: false, status: 500, type: 'basic' });
+		(signAndPostAuthToken as jest.Mock).mockResolvedValue(err('auth failed'));
 		const pending = handlePaykitConnectAction(data, context);
 		const options = await flushShow();
 		options.payload.onDecision(true);
@@ -656,9 +648,7 @@ describe('combined https grant event-faithful', () => {
 	});
 
 	it('deletes this requestId when locator POST returns non-2xx', async () => {
-		mockFetch
-			.mockResolvedValueOnce({ ok: true, status: 200, type: 'basic' })
-			.mockResolvedValueOnce({ ok: false, status: 500, type: 'basic' });
+		mockFetch.mockResolvedValueOnce({ ok: false, status: 500, type: 'basic' });
 		const pending = handlePaykitConnectAction(data, context);
 		const options = await flushShow();
 		options.payload.onDecision(true);
@@ -671,9 +661,7 @@ describe('combined https grant event-faithful', () => {
 	});
 
 	it('deletes this requestId when locator POST throws', async () => {
-		mockFetch
-			.mockResolvedValueOnce({ ok: true, status: 200, type: 'basic' })
-			.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+		mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
 		const pending = handlePaykitConnectAction(data, context);
 		const options = await flushShow();
 		options.payload.onDecision(true);
@@ -783,16 +771,31 @@ describe('combined https grant event-faithful', () => {
 		const result = await pending;
 
 		expect(result.isOk()).toBe(true);
-		expect(signAndPostAuthToken).toHaveBeenCalled();
-		expect(mockFetch.mock.calls[0][0]).toBe(AUTH_CHANNEL_URL);
+		expect(signAndPostAuthToken).toHaveBeenCalledWith(expect.objectContaining({
+			authUrl: expect.stringMatching(
+				new RegExp(`relay=${encodeURIComponent(AUTH_RELAY).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+			),
+		}));
+		const authUrl = (signAndPostAuthToken as jest.Mock).mock.calls[0][0].authUrl as string;
+		const authParams = new URLSearchParams(authUrl.slice('pubkyauth:///?'.length));
+		expect(authParams.get('relay')).toBe(AUTH_RELAY);
 		expect(mockFetch.mock.calls.every((call) => !String(call[0]).includes('/hc-'))).toBe(true);
+		expect(Linking.canOpenURL).toHaveBeenCalled();
+		expect((Linking.canOpenURL as jest.Mock).mock.invocationCallOrder[0])
+			.toBeLessThan((signAndPostAuthToken as jest.Mock).mock.invocationCallOrder[0]);
 		expect(Linking.openURL).toHaveBeenCalled();
+		const opened = (Linking.openURL as jest.Mock).mock.calls[0][0] as string;
+		expect(opened).toContain('mode=secure_handoff%2Bpubkyauth');
+		expect(opened).not.toContain('session_secret');
 		const payload = decodeSb2Payload();
 		expect(payload).not.toHaveProperty('session_secret');
 		expect(payload).not.toHaveProperty('capabilities');
+		const certExpires = (issueAppCert as jest.Mock).mock.calls[0][7];
+		expect(typeof certExpires).toBe('number');
+		expect(certExpires).toBeGreaterThan(Math.floor(Date.now() / 1000));
 	});
 
-	it('hypercolor:// without secret keeps legacy session_secret and openURL', async () => {
+	it('hypercolor:// without secret is rejected before the sheet', async () => {
 		const pending = handlePaykitConnectAction({
 			action: InputAction.PaykitConnect,
 			params: {
@@ -801,16 +804,16 @@ describe('combined https grant event-faithful', () => {
 				ephemeralPk,
 			},
 		}, context);
-		const options = await flushShow();
-		options.payload.onDecision(true);
 		const result = await pending;
 
-		expect(result.isOk()).toBe(true);
+		expect(result.isErr()).toBe(true);
+		expect(String(result.error)).toContain('session.paykitConnectUpdateHypercolor');
+		expect(faithful.shows).toEqual([]);
 		expect(signAndPostAuthToken).not.toHaveBeenCalled();
-		expect(Linking.openURL).toHaveBeenCalled();
-		const payload = decodeSb2Payload();
-		expect(payload.session_secret).toBe('session-secret-123');
-		expect(payload.capabilities).toEqual(['/pub:rw']);
+		expect(Linking.openURL).not.toHaveBeenCalled();
+		expect(showToast).toHaveBeenCalledWith(expect.objectContaining({
+			description: 'session.paykitConnectUpdateHypercolor',
+		}));
 	});
 
 	it('bitkit:// with secret/relay is rejected before the sheet', async () => {
@@ -833,7 +836,7 @@ describe('combined https grant event-faithful', () => {
 	});
 
 	it('hypercolor:// combined auth POST fail: no openURL and deletes the handoff blob', async () => {
-		mockFetch.mockResolvedValueOnce({ ok: false, status: 500, type: 'basic' });
+		(signAndPostAuthToken as jest.Mock).mockResolvedValue(err('auth failed'));
 		const pending = handlePaykitConnectAction(mobileCombined, context);
 		const options = await flushShow();
 		options.payload.onDecision(true);
@@ -841,6 +844,38 @@ describe('combined https grant event-faithful', () => {
 
 		expect(result.isErr()).toBe(true);
 		expect(Linking.openURL).not.toHaveBeenCalled();
+		const handoffUrl =
+			`pubky://test-pubky-z32/pub/paykit.app/v0/handoff/${'i'.repeat(64)}`;
+		expect(deleteFile).toHaveBeenCalledWith(handoffUrl, 'b'.repeat(64));
+	});
+
+	it('hypercolor:// canOpenURL false: no auth POST and deletes the handoff blob', async () => {
+		(Linking.canOpenURL as jest.Mock).mockResolvedValue(false);
+		const pending = handlePaykitConnectAction(mobileCombined, context);
+		const options = await flushShow();
+		options.payload.onDecision(true);
+		const result = await pending;
+
+		expect(result.isErr()).toBe(true);
+		expect(signAndPostAuthToken).not.toHaveBeenCalled();
+		expect(Linking.openURL).not.toHaveBeenCalled();
+		const handoffUrl =
+			`pubky://test-pubky-z32/pub/paykit.app/v0/handoff/${'i'.repeat(64)}`;
+		expect(deleteFile).toHaveBeenCalledWith(handoffUrl, 'b'.repeat(64));
+		expect(showToast).toHaveBeenCalledWith(expect.objectContaining({
+			description: 'session.cannotOpenCallback',
+		}));
+	});
+
+	it('hypercolor:// openURL throw after auth POST deletes the handoff blob', async () => {
+		(Linking.openURL as jest.Mock).mockImplementation(() => Promise.reject(new Error('open failed')));
+		const pending = handlePaykitConnectAction(mobileCombined, context);
+		const options = await flushShow();
+		options.payload.onDecision(true);
+		const result = await pending;
+
+		expect(result.isErr()).toBe(true);
+		expect(signAndPostAuthToken).toHaveBeenCalled();
 		const handoffUrl =
 			`pubky://test-pubky-z32/pub/paykit.app/v0/handoff/${'i'.repeat(64)}`;
 		expect(deleteFile).toHaveBeenCalledWith(handoffUrl, 'b'.repeat(64));

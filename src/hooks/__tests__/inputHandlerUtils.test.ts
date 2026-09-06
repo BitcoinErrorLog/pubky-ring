@@ -293,4 +293,12 @@ describe('routeInputWithContext paykit toast suppression', () => {
 
 		expect(showToast).not.toHaveBeenCalled();
 	});
+
+	it('does not show a second toast when legacy Hypercolor reject already toasted', async () => {
+		(routeInput as jest.Mock).mockResolvedValue(err('session.paykitConnectUpdateHypercolor'));
+
+		await routeInputWithContext(parsedPaykit, 'pk:one', 'scan', jest.fn());
+
+		expect(showToast).not.toHaveBeenCalled();
+	});
 });

@@ -186,6 +186,7 @@ describe('ConfirmPaykitConnect render behavior', () => {
 		const text = collectText(renderer!.root);
 		expect(text).toContain('session.paykitConnectMobileTitle');
 		expect(text).toContain('session.paykitConnectMobileSessionLine');
+		expect(text).toContain('session.paykitConnectVerificationMobile');
 		expect(text).toContain('/pub/paykit/');
 		expect(text).toContain('/pub/hypercolor.app/v1/');
 	});

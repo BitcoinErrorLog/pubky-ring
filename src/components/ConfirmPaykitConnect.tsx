@@ -125,6 +125,11 @@ const ConfirmPaykitConnect = ({
 		: includesHypercolorMobileSession
 			? 'session.paykitConnectMobileSessionLine'
 			: 'session.paykitConnectWarning';
+	const verificationKey = includesWebSession
+		? 'session.paykitConnectVerification'
+		: includesHypercolorMobileSession
+			? 'session.paykitConnectVerificationMobile'
+			: 'session.paykitConnectVerification';
 	const pubkyName = useSelector((state: RootState) => getPubkyName(state, pubky));
 
 	const handleCopyPubky = useCallback(() => {
@@ -203,7 +208,7 @@ const ConfirmPaykitConnect = ({
 
 					<View style={styles.section} testID="ConfirmPaykitConnectVerification">
 						<SessionText style={styles.sectionTitle}>
-							{t('session.paykitConnectVerification')}
+							{t(verificationKey)}
 						</SessionText>
 						<Text style={styles.verificationCode}>{verificationCode}</Text>
 					</View>

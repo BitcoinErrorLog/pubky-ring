@@ -358,7 +358,7 @@ describe('paykitConnectAction', () => {
 			);
 		});
 
-		it.each(['bitkit', 'paykit', 'atomicity', 'hypercolor'])(
+		it.each(['bitkit', 'paykit', 'atomicity'])(
 			'should accept %s callback scheme',
 			async (scheme) => {
 				const data = createActionData({ callback: `${scheme}://paykit-setup` });
@@ -373,6 +373,20 @@ describe('paykitConnectAction', () => {
 				);
 			}
 		);
+
+		it('should accept hypercolor callback scheme when secret and relay are present', async () => {
+			const data = createActionData({
+				callback: 'hypercolor://paykit-setup',
+				deviceId: 'hypercolor-19c8e5a3c00',
+				secret: HYPERCOLOR_AUTH_SECRET,
+				relay: HYPERCOLOR_AUTH_RELAY,
+				caps: HYPERCOLOR_GRANT_CAPS,
+			});
+
+			await handlePaykitConnectAction(data, mockContext);
+
+			expect(signInToHomeserver).toHaveBeenCalled();
+		});
 
 		it.each([
 			`https://hypercolor.app/ring-callback?ch=${mockMatchingCh}`,
@@ -708,6 +722,7 @@ describe('paykitConnectAction', () => {
 			const result = await handlePaykitConnectAction(data, mockContext);
 
 			expect(result.isErr()).toBe(true);
+			expect(deleteFile).toHaveBeenCalled();
 		});
 	});
 
@@ -736,6 +751,17 @@ describe('paykitConnectAction', () => {
 				hexDeviceId,
 				0
 			);
+		});
+
+		it('rejects a Hypercolor-shaped deviceId on bitkit:// before the sheet', async () => {
+			const result = await handlePaykitConnectAction(
+				createActionData({ deviceId: 'hypercolor-19c8e5a3c00' }),
+				mockContext,
+			);
+
+			expect(result.isErr()).toBe(true);
+			expect(SheetManager.show).not.toHaveBeenCalled();
+			expect(signInToHomeserver).not.toHaveBeenCalled();
 		});
 	});
 
@@ -886,7 +912,7 @@ describe('paykitConnectAction', () => {
 
 		it('passes scheme destination for a custom-scheme callback', async () => {
 			await handlePaykitConnectAction(
-				createActionData({ callback: 'hypercolor://paykit-setup', deviceId: 'dev-9' }),
+				createActionData({ callback: 'bitkit://paykit-setup', deviceId: 'device123' }),
 				mockContext
 			);
 
@@ -894,11 +920,30 @@ describe('paykitConnectAction', () => {
 				'confirm-paykit-connect',
 				expect.objectContaining({
 					payload: expect.objectContaining({
-						destination: 'hypercolor:// session.appOnThisDevice',
-						deviceId: 'dev-9',
+						destination: 'bitkit:// session.appOnThisDevice',
+						deviceId: 'device123',
 						verificationCode: formatRingVerificationCode(mockMatchingCh),
 					}),
 				})
+			);
+		});
+
+		it('rejects hypercolor:// without secret and relay before the sheet', async () => {
+			const result = await handlePaykitConnectAction(
+				createActionData({
+					callback: 'hypercolor://ring-callback',
+					deviceId: 'hypercolor-19c8e5a3c00',
+				}),
+				mockContext,
+			);
+
+			expect(result.isErr()).toBe(true);
+			expect(SheetManager.show).not.toHaveBeenCalled();
+			expect(signInToHomeserver).not.toHaveBeenCalled();
+			expect(showToast).toHaveBeenCalledWith(
+				expect.objectContaining({
+					description: 'session.paykitConnectUpdateHypercolor',
+				}),
 			);
 		});
 

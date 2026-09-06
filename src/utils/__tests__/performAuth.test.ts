@@ -42,7 +42,7 @@ jest.mock('../../i18n', () => ({
 import { auth } from '@synonymdev/react-native-pubky';
 import { getKeychainValue } from '../keychain';
 import { getPubkyDataFromStore } from '../store-helpers';
-import { performAuth } from '../pubky';
+import { performAuth, signAndPostAuthToken } from '../pubky';
 
 const LEAKY = 'native fail https://relay.example/pubkyauth?secret=abc123';
 
@@ -133,5 +133,26 @@ describe('performAuth', () => {
 		});
 
 		expect(result.isErr()).toBe(true);
+	});
+});
+
+describe('signAndPostAuthToken', () => {
+	it('times out hung native auth after 20s', async () => {
+		jest.useFakeTimers();
+		try {
+			(auth as jest.Mock).mockReturnValue(new Promise(() => undefined));
+			const pending = signAndPostAuthToken({
+				authUrl: 'pubkyauth:///?caps=/pub/paykit/:rw',
+				secretKey: 'sk',
+			});
+			await jest.advanceTimersByTimeAsync(20_000);
+			const result = await pending;
+			expect(result.isErr()).toBe(true);
+			if (result.isErr()) {
+				expect(result.error.message).toBe('auth.timeoutError');
+			}
+		} finally {
+			jest.useRealTimers();
+		}
 	});
 });
