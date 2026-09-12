@@ -148,13 +148,6 @@
     "homeserverMessageEnd": "está ahora configurado para utilizar el servidor doméstico de Synonym para el alojamiento de datos.",
     "openButton": "Abra {{domain}}"
   },
-  "session": {
-    "success": "Sesión devuelta",
-    "sessionReturned": "Datos de la sesión enviados a la aplicación solicitante",
-    "signInFailed": "Fallo al iniciar sesión",
-    "invalidCallback": "URL de devolución de llamada no válida proporcionada",
-    "cannotOpenCallback": "No se puede abrir la URL de devolución de llamada para devolver la sesión"
-  },
   "errors": {
     "failedToParseQR": "Fallo al analizar los datos del código QR",
     "failedToProcessQR": "Fallo al procesar los datos del código QR",
@@ -163,7 +156,7 @@
     "noClipboardPubky": "No se proporciona pubky para el manejo del portapapeles",
     "failedToProcessInput": "Fallo al procesar los datos de entrada",
     "emptyClipboard": "El portapapeles está vacío",
-    "unrecognizedFormat": "Formato no reconocido. Se esperaba una frase de recuperación, un código de invitación, una URL de autenticación o una solicitud de sesión.",
+    "unrecognizedFormat": "Formato no reconocido. Se esperaba una frase de recuperación, un código de invitación o una URL de autenticación.",
     "debugInfoCopied": "Información de depuración copiada al portapapeles",
     "tapToCopyDebug": "Pulse para copiar la información de depuración",
     "unknownError": "Se ha producido un error desconocido",
@@ -173,7 +166,6 @@
     "signupFailed": "Error de registro",
     "signupFailedDescription": "Por favor, compruebe que su enlace de inscripción sigue siendo válido y vuelva a intentarlo.",
     "inviteProcessingFailed": "Fallo en el procesamiento de la invitación",
-    "sessionRequestFailed": "Fallo en la solicitud de sesión",
     "signInFailed": "Fallo en el registro",
     "failedToGetSecretKey": "Fallo al obtener la clave secreta",
     "failedToProcessAuth": "Fallo al procesar auth",
@@ -241,7 +233,6 @@
     "migrateSuccessful": "Migración con éxito",
     "signupSuccessful": "Inscripción realizada con éxito",
     "inviteProcessed": "Invitación procesada",
-    "sessionReturned": "Sesión devuelta",
     "unhandledInputType": "Tipo de entrada no manejada",
     "unknownRoutingError": "Error desconocido durante el enrutamiento"
   },

@@ -18,7 +18,6 @@ import {
 	isInviteAction,
 	isGetProfileAction,
 	isGetFollowsAction,
-	isPaykitConnectAction,
 	isSignMessageAction,
 	isUnknownAction,
 } from './inputParser';
@@ -29,7 +28,6 @@ import { handleSignupAction } from './actions/signupAction';
 import { handleInviteAction } from './actions/inviteAction';
 import { handleProfileAction } from './actions/profileAction';
 import { handleFollowsAction } from './actions/followsAction';
-import { handlePaykitConnectAction } from './actions/paykitConnectAction';
 import { handleSignMessageAction } from './actions/signMessageAction';
 import i18n from '../i18n';
 import { getErrorMessage } from './errorHandler';
@@ -124,12 +122,6 @@ export const routeInput = async (
 				: err(getErrorMessage(result.error, 'Failed to get follows'));
 		}
 
-		if (isPaykitConnectAction(data)) {
-			const result = await handlePaykitConnectAction(data, effectiveContext);
-			return result.isOk()
-				? ok({ success: true, action: InputAction.PaykitConnect, pubky: result.value, message: 'Paykit connected successfully' })
-				: err(getErrorMessage(result.error, 'Failed to connect Paykit'));
-		}
 
 		if (isSignMessageAction(data)) {
 			const result = await handleSignMessageAction(data, effectiveContext);
@@ -157,7 +149,6 @@ export const actionRequiresPubky = (action: InputAction): boolean => {
 	return [
 		InputAction.Auth,
 		InputAction.GetFollows,
-		InputAction.PaykitConnect,
 		InputAction.SignMessage,
 	].includes(action);
 };
@@ -172,7 +163,6 @@ export const actionRequiresNetwork = (action: InputAction): boolean => {
 		InputAction.Invite,
 		InputAction.GetProfile,
 		InputAction.GetFollows,
-		InputAction.PaykitConnect,
 	].includes(action);
 };
 

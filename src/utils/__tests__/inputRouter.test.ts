@@ -27,9 +27,6 @@ jest.mock('../actions/profileAction', () => ({
 jest.mock('../actions/followsAction', () => ({
 	handleFollowsAction: jest.fn(),
 }));
-jest.mock('../actions/paykitConnectAction', () => ({
-	handlePaykitConnectAction: jest.fn(),
-}));
 jest.mock('../actions/signMessageAction', () => ({
 	handleSignMessageAction: jest.fn(),
 }));
@@ -50,7 +47,6 @@ import { handleSignupAction } from '../actions/signupAction';
 import { handleInviteAction } from '../actions/inviteAction';
 import { handleProfileAction } from '../actions/profileAction';
 import { handleFollowsAction } from '../actions/followsAction';
-import { handlePaykitConnectAction } from '../actions/paykitConnectAction';
 import { handleSignMessageAction } from '../actions/signMessageAction';
 
 // Helper to create mock Result objects
@@ -205,25 +201,6 @@ describe('inputRouter', () => {
 			expect(result.isOk()).toBe(true);
 		});
 
-		it('should route paykit-connect action to handlePaykitConnectAction', async () => {
-			(handlePaykitConnectAction as jest.Mock).mockResolvedValue(createOkResult('pubky'));
-
-			const parsed: ParsedInput = {
-				action: InputAction.PaykitConnect,
-				data: {
-					action: InputAction.PaykitConnect,
-					params: { deviceId: 'device', callback: 'bitkit://paykit' },
-				},
-				source: 'deeplink',
-				rawInput: 'pubkyring://paykit-connect?...',
-			};
-
-			const result = await routeInput(parsed, mockContext);
-
-			expect(handlePaykitConnectAction).toHaveBeenCalled();
-			expect(result.isOk()).toBe(true);
-		});
-
 		it('should route sign-message action to handleSignMessageAction', async () => {
 			(handleSignMessageAction as jest.Mock).mockResolvedValue(createOkResult('signature'));
 
@@ -346,7 +323,6 @@ describe('inputRouter', () => {
 		it('should return true for actions that require pubky', () => {
 			expect(actionRequiresPubky(InputAction.Auth)).toBe(true);
 			expect(actionRequiresPubky(InputAction.GetFollows)).toBe(true);
-			expect(actionRequiresPubky(InputAction.PaykitConnect)).toBe(true);
 			expect(actionRequiresPubky(InputAction.SignMessage)).toBe(true);
 		});
 
@@ -366,7 +342,6 @@ describe('inputRouter', () => {
 			expect(actionRequiresNetwork(InputAction.Invite)).toBe(true);
 			expect(actionRequiresNetwork(InputAction.GetProfile)).toBe(true);
 			expect(actionRequiresNetwork(InputAction.GetFollows)).toBe(true);
-			expect(actionRequiresNetwork(InputAction.PaykitConnect)).toBe(true);
 		});
 
 		it('should return false for actions that do not require network', () => {

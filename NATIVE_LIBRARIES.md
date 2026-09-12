@@ -1,6 +1,6 @@
 # Native Libraries
 
-The Pubky-ring app requires native libraries from `pubky-noise` for X25519 key derivation.
+The Pubky-ring app uses native libraries from `pubky-noise` for Ed25519 message signing.
 
 ## ✅ Native Libraries Now Included
 
@@ -74,15 +74,7 @@ adb reverse tcp:8081 tcp:8081
 npx react-native run-android
 ```
 
-## Rebuilding (Required for New Features)
-
-**As of January 2026**: The pubky-noise library has been updated with:
-- Spec-compliant AAD construction per PUBKY_CRYPTO_SPEC Section 7.5
-- New `sealedBlobEncryptWithContext` / `sealedBlobDecryptWithContext` functions
-- UKD (Unified Key Delegation) functions: `issueAppCert`, `verifyAppCert`, `signTypedContent`, `verifyTypedContent`, `generateAppKeypair`
-- `ed25519PublicFromSecret` for deriving Ed25519 public key from secret key
-
-**Rebuild is required** to use these new features. After rebuilding, the native bridges in pubky-ring will automatically have access to the new functions.
+## Rebuilding
 
 If you need to rebuild the native libraries from source:
 
@@ -115,7 +107,7 @@ cp platforms/android/src/main/jniLibs/x86_64/libpubky_noise.so \
 - `android/app/src/main/java/com/pubky/noise/pubky_noise.kt` - Kotlin FFI bindings
 
 ### React Native Modules
-- `ios/pubkyring/PubkyNoiseModule.swift` - iOS RN bridge (key derivation, encryption, session management)
+- `ios/pubkyring/PubkyNoiseModule.swift` - iOS RN bridge
 - `ios/pubkyring/PubkyNoiseModule.m` - Objective-C bridge declarations
 - `android/app/src/main/java/to/pubkyring/PubkyNoiseModule.kt` - Android RN bridge
 

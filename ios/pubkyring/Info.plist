@@ -45,7 +45,6 @@
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>bitkit</string>
-		<string>paykit</string>
 	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>

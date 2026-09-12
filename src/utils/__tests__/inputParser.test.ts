@@ -14,10 +14,12 @@ import {
 	isInviteAction,
 	isGetProfileAction,
 	isGetFollowsAction,
-	isPaykitConnectAction,
 	isSignMessageAction,
 	isUnknownAction,
 } from '../inputParser';
+import { routeInput } from '../inputRouter';
+import { handleAuthAction } from '../actions/authAction';
+import { handleImportAction } from '../actions/importAction';
 import { EBackupPreference } from '../../types/pubky';
 
 // Mock the pubky SDK
@@ -25,6 +27,30 @@ jest.mock('@synonymdev/react-native-pubky', () => ({
 	parseAuthUrl: jest.fn(),
 	mnemonicPhraseToKeypair: jest.fn(),
 	getPublicKeyFromSecretKey: jest.fn(),
+}));
+jest.mock('../actions/authAction', () => ({
+	handleAuthAction: jest.fn(),
+}));
+jest.mock('../actions/importAction', () => ({
+	handleImportAction: jest.fn(),
+}));
+jest.mock('../actions/migrateAction', () => ({
+	handleMigrateAction: jest.fn(),
+}));
+jest.mock('../actions/signupAction', () => ({
+	handleSignupAction: jest.fn(),
+}));
+jest.mock('../actions/inviteAction', () => ({
+	handleInviteAction: jest.fn(),
+}));
+jest.mock('../actions/profileAction', () => ({
+	handleProfileAction: jest.fn(),
+}));
+jest.mock('../actions/followsAction', () => ({
+	handleFollowsAction: jest.fn(),
+}));
+jest.mock('../actions/signMessageAction', () => ({
+	handleSignMessageAction: jest.fn(),
 }));
 
 import {
@@ -251,41 +277,19 @@ describe('inputParser', () => {
 		});
 	});
 
-	describe('parseInput - Paykit Connect deeplinks', () => {
-		it('should parse paykit-connect deeplink', async () => {
-			const url = 'pubkyring://paykit-connect?deviceId=device123&callback=bitkit://paykit-setup';
+	describe('parseInput and routeInput - rejected experimental deeplinks', () => {
+		it('classifies paykit-connect as Unknown without routing it to auth or import', async () => {
+			const parsed = await parseInput(
+				'pubkyring://paykit-connect?deviceId=device123&callback=bitkit://paykit-setup',
+				'deeplink'
+			);
+			const routed = await routeInput(parsed, { dispatch: jest.fn() });
 
-			const result = await parseInput(url, 'deeplink');
-
-			expect(result.action).toBe(InputAction.PaykitConnect);
-			expect(isPaykitConnectAction(result.data)).toBe(true);
-			if (isPaykitConnectAction(result.data)) {
-				expect(result.data.params.deviceId).toBe('device123');
-				expect(result.data.params.callback).toBe('bitkit://paykit-setup');
-				expect(result.data.params.includeEpoch1).toBe(true); // default
-			}
-		});
-
-		it('should parse paykit-connect with ephemeralPk', async () => {
-			const ephemeralPk = 'a'.repeat(64);
-			const url = `pubkyring://paykit-connect?deviceId=device123&callback=bitkit://paykit-setup&ephemeralPk=${ephemeralPk}`;
-
-			const result = await parseInput(url, 'deeplink');
-
-			expect(result.action).toBe(InputAction.PaykitConnect);
-			if (isPaykitConnectAction(result.data)) {
-				expect(result.data.params.ephemeralPk).toBe(ephemeralPk);
-			}
-		});
-
-		it('should parse paykit-connect with includeEpoch1=false', async () => {
-			const url = 'pubkyring://paykit-connect?deviceId=device123&callback=bitkit://paykit-setup&includeEpoch1=false';
-
-			const result = await parseInput(url, 'deeplink');
-
-			if (isPaykitConnectAction(result.data)) {
-				expect(result.data.params.includeEpoch1).toBe(false);
-			}
+			expect(parsed.action).toBe(InputAction.Unknown);
+			expect(isUnknownAction(parsed.data)).toBe(true);
+			expect(routed.isErr()).toBe(true);
+			expect(handleAuthAction).not.toHaveBeenCalled();
+			expect(handleImportAction).not.toHaveBeenCalled();
 		});
 	});
 

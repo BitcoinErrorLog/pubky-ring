@@ -148,13 +148,6 @@
     "homeserverMessageEnd": "is now configured to use the Synonym homeserver for data hosting.",
     "openButton": "Open {{domain}}"
   },
-  "session": {
-    "success": "Session Returned",
-    "sessionReturned": "Session data sent to requesting app",
-    "signInFailed": "Sign In Failed",
-    "invalidCallback": "Invalid callback URL provided",
-    "cannotOpenCallback": "Cannot open callback URL to return session"
-  },
   "errors": {
     "failedToParseQR": "Failed to parse QR code data",
     "failedToProcessQR": "Failed to process QR code data",
@@ -163,7 +156,7 @@
     "noClipboardPubky": "No pubky provided for clipboard handling",
     "failedToProcessInput": "Failed to process input data",
     "emptyClipboard": "Clipboard is empty",
-    "unrecognizedFormat": "Unrecognized format. Expected a recovery phrase, invite code, auth URL, or session request.",
+    "unrecognizedFormat": "Unrecognized format. Expected a recovery phrase, invite code, or auth URL.",
     "debugInfoCopied": "Debug info copied to clipboard",
     "tapToCopyDebug": "Tap to copy debug info",
     "unknownError": "An unknown error occurred",
@@ -173,7 +166,6 @@
     "signupFailed": "Signup failed",
     "signupFailedDescription": "Please check your signup link is still valid, then try again.",
     "inviteProcessingFailed": "Invite processing failed",
-    "sessionRequestFailed": "Session request failed",
     "signInFailed": "Sign in failed",
     "failedToGetSecretKey": "Failed to get secret key",
     "failedToProcessAuth": "Failed to process auth",
@@ -241,7 +233,6 @@
     "migrateSuccessful": "Migration successful",
     "signupSuccessful": "Signup successful",
     "inviteProcessed": "Invite processed",
-    "sessionReturned": "Session returned",
     "unhandledInputType": "Unhandled input type",
     "unknownRoutingError": "Unknown error during routing"
   },

@@ -7,21 +7,6 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="bitkit" />
         </intent>
-        <!-- Allow opening paykit:// callback URLs -->
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="paykit" />
-        </intent>
-        <!-- Allow opening atomicity:// callback URLs -->
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="atomicity" />
-        </intent>
-        <!-- Allow opening hypercolor:// callback URLs -->
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="hypercolor" />
-        </intent>
     </queries>
 
     <uses-feature

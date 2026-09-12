@@ -27,7 +27,6 @@ export enum InputAction {
 	HomeserverSignIn = 'homeserver_signin',
 	GetProfile = 'get_profile',
 	GetFollows = 'get_follows',
-	PaykitConnect = 'paykit_connect', // Combined session + noise keys for Paykit
 	SignMessage = 'sign_message', // Sign a message with Ed25519 key
 	Unknown = 'unknown',
 }
@@ -72,13 +71,6 @@ export interface GetFollowsParams {
 	app?: string; // App namespace, defaults to 'pubky.app'
 }
 
-// Paykit connect parameters - combined session + noise keys
-export interface PaykitConnectParams {
-	deviceId: string;
-	callback: string;
-	includeEpoch1?: boolean; // Include epoch 1 keypair for rotation, defaults to true
-	ephemeralPk?: string; // Optional: Bitkit's ephemeral X25519 public key for secure handoff
-}
 
 // Sign message parameters
 export interface SignMessageParams {
@@ -103,7 +95,6 @@ export type ActionData =
 	| { action: InputAction.HomeserverSignIn; params: { url: string } }
 	| { action: InputAction.GetProfile; params: GetProfileParams }
 	| { action: InputAction.GetFollows; params: GetFollowsParams }
-	| { action: InputAction.PaykitConnect; params: PaykitConnectParams }
 	| { action: InputAction.SignMessage; params: SignMessageParams }
 	| { action: InputAction.Unknown; params: { rawData: string } };
 
@@ -245,35 +236,6 @@ const parseGetFollowsParams = (queryString: string): GetFollowsParams | null => 
 	}
 };
 
-/**
- * Parses paykit-connect deeplink parameters
- * Format: paykit-connect?deviceId={device_id}&callback={callback_url}&includeEpoch1={bool}&ephemeralPk={pk}
- * Example: pubkyring://paykit-connect?deviceId=abc123&callback=bitkit://paykit-setup&ephemeralPk=aabbcc...
- *
- * If ephemeralPk is provided, uses secure handoff (stores payload on homeserver).
- * Otherwise, returns session + noise keys directly in callback (legacy mode).
- */
-const parsePaykitConnectParams = (queryString: string): PaykitConnectParams | null => {
-	try {
-		const params = new URLSearchParams(queryString);
-		const deviceId = params.get('deviceId');
-		const callback = params.get('callback');
-		if (!deviceId || !callback) {
-			return null;
-		}
-		const includeEpoch1Str = params.get('includeEpoch1');
-		const includeEpoch1 = includeEpoch1Str === 'false' ? false : true; // Default to true
-		const ephemeralPk = params.get('ephemeralPk') || undefined;
-		return {
-			deviceId,
-			callback: decodeURIComponent(callback),
-			includeEpoch1,
-			ephemeralPk,
-		};
-	} catch {
-		return null;
-	}
-};
 
 /**
  * Parses sign-message deeplink parameters
@@ -386,7 +348,6 @@ export const parseInput = async (
 
 	// Normalize: remove trailing slash before query string for known routes
 	if (urlWithoutProtocol.startsWith('signup/?')) urlWithoutProtocol = urlWithoutProtocol.replace('signup/?', 'signup?');
-	if (urlWithoutProtocol.startsWith('session/?')) urlWithoutProtocol = urlWithoutProtocol.replace('session/?', 'session?');
 	if (urlWithoutProtocol.startsWith('signin/?')) urlWithoutProtocol = urlWithoutProtocol.replace('signin/?', 'signin?');
 
 	// 1. Check for signup deeplink
@@ -428,21 +389,6 @@ export const parseInput = async (
 			return {
 				action: InputAction.GetFollows,
 				data: { action: InputAction.GetFollows, params: followsParams },
-				source,
-				rawInput,
-			};
-		}
-	}
-
-	// 2d. Check for paykit-connect deeplink (combined session + noise keys)
-	// Format: pubkyring://paykit-connect?deviceId={id}&callback={url}
-	if (urlWithoutProtocol.startsWith('paykit-connect?')) {
-		const queryString = urlWithoutProtocol.substring(15); // Remove "paykit-connect?"
-		const paykitParams = parsePaykitConnectParams(queryString);
-		if (paykitParams) {
-			return {
-				action: InputAction.PaykitConnect,
-				data: { action: InputAction.PaykitConnect, params: paykitParams },
 				source,
 				rawInput,
 			};
@@ -613,11 +559,6 @@ export const isGetFollowsAction = (
 	return data.action === InputAction.GetFollows;
 };
 
-export const isPaykitConnectAction = (
-	data: ActionData
-): data is { action: InputAction.PaykitConnect; params: PaykitConnectParams } => {
-	return data.action === InputAction.PaykitConnect;
-};
 
 export const isSignMessageAction = (
 	data: ActionData
